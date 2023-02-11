@@ -11,7 +11,11 @@ use Sqliberty\Builder\CollectionSet;
 use ArrayObject;
 use PDO;
 use PDOException;
-
+/**
+ * Model class
+ * A model is a class that represent a table in the database
+ * @package Sqliberty
+ */
 class Model
 {
     private PDO $pdo;
@@ -96,7 +100,11 @@ class Model
             $this->error = $e->getMessage();
         }
     }
-
+    /**
+     * Method to add length to the column
+     * @param string $type
+     * @return int
+     */
     private function addLength(string $type)
     {
         switch ($type) {
@@ -112,8 +120,12 @@ class Model
                 return 0;
         }
     }
-
-    public function create(array $data)
+    /**
+     * Method to create a new row in the table
+     * @param array $data
+     * @return Row|Model
+     */
+    public function create(array $data): Row|Model
     {
         $insert = $this->builder->insert($this->table);
 
@@ -173,8 +185,11 @@ class Model
             return $this;
         }
     }
-
-    public function update(array $data)
+    /**
+     * Method to update a row in the table
+     * @return Row|Model
+     */
+    public function update(array $data): Row|Model
     {
         $update = $this->builder->update($this->table);
         $set = new CollectionSet();
@@ -230,7 +245,10 @@ class Model
             return $this;
         }
     }
-
+    /**
+     * Method to delete a row in the table
+     * @return Row|Model
+     */
     public function delete(array $data)
     {
         $delete = $this->builder->delete($this->table);
@@ -282,7 +300,10 @@ class Model
             return $this;
         }
     }
-
+    /**
+     * Method to find a row in the table based on the primary key
+     * @return Row|Model
+     */
     public function get(int $id)
     {
         $select = $this->builder->select(["*"]);
@@ -329,7 +350,10 @@ class Model
             return $this;
         }
     }
-
+    /**
+     * Method to find multiple rows in the table based on data (recursive search is possible)
+     * @return Row|Model
+     */
     public function find(array $data)
     {
         $rows = new ArrayObject();
@@ -491,7 +515,11 @@ class Model
         }
         return $select;
     }
-
+    /**
+     * Find one row in the table based on the data (recursive search is possible)
+     * @param array $data
+     * @return Row|Model
+     */
     public function findOne(array $data)
     {
         $relationsDatas = array_filter($data, function ($value) {
