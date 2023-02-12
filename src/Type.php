@@ -35,4 +35,5 @@ abstract class Type{
      const ENUM = "ENUM";
      const SET = "SET";
      const JSON = "JSON";
+     const TABLE = "table";
 }

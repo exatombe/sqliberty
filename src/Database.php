@@ -10,7 +10,7 @@ use PDOException;
  * @method Model model(string $table, array $columns, string $primaryKey = 'id', bool $autoIncrement = false)
  */
 class Database{
-    private \PDO $pdo;
+    private ?PDO $pdo = null;
     private string $error = '';
     public function __construct($host,$db,$user,$pass,$port = 3306){
         try{
@@ -30,6 +30,9 @@ class Database{
      * @return Model
      */
     public function model(string $table, array $columns, string $primaryKey = 'id', bool $autoIncrement = false): Model{
+        if($this->pdo === null)
+            throw new \Exception("Database connection error: " . $this->error);
+            
         return new Model($this->pdo, $table, $columns, $primaryKey, $autoIncrement);
     }
 

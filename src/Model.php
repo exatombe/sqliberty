@@ -11,6 +11,7 @@ use Sqliberty\Builder\CollectionSet;
 use ArrayObject;
 use PDO;
 use PDOException;
+
 /**
  * Model class
  * A model is a class that represent a table in the database
@@ -53,8 +54,35 @@ class Model
                 } else {
                     $curCol = new Column($name);
                     $curCol->type($type["type"]);
-                    $curCol->length(11);
-                    $curCol->foreignKey($type);
+                    if (isset($type["length"])) {
+                        $curCol->length(intval($type["length"]));
+                    }
+                    if (isset($type["default"])) {
+                        $curCol->default(boolval($type["default"]));
+                    }
+                    if (isset($type["null"])) {
+                        $curCol->nullable(boolval($type["null"]));
+                    }
+                    if (isset($type["unique"])) {
+                        $curCol->unique(boolval($type["unique"]));
+                    }
+                    if (isset($type["primary"])) {
+                        $curCol->primaryKey(boolval($type["primary"]));
+                    }
+                    if (isset($type["auto"])) {
+                        $curCol->autoIncrement(boolval($type["auto"]));
+                    }
+                    if (isset($type["foreignKey"])) {
+                        if (isset($type["foreignKey"]["table"])) {
+                            if (isset($type["foreignKey"]["column"])) {
+                                $curCol->foreignKey($type["foreignKey"]);
+                            } else {
+                                die("You must specify the column of the foreign key");
+                            }
+                        } else {
+                            die("You must specify the table of the foreign key");
+                        }
+                    }
                     $colColumns->addColumn($curCol);
                     array_push($this->columns, $name);
                 }
@@ -132,7 +160,7 @@ class Model
         $columns = $this->columns;
         // remove the primary key if it's autoincrement 
         if (isset($this->autoIncrement)) {
-            if($this->autoIncrement){
+            if ($this->autoIncrement) {
                 $columns = array_filter($this->columns, function ($value) {
                     return $value != $this->primaryKey;
                 });
@@ -395,13 +423,13 @@ class Model
         } else {
 
             // inner join the relation table 
-           $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
+            $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
             // select the first element of the array
             // check from where table the column is
 
-           $select = $this->recursiveWhere($select, $this->schema, $data,$relationsDatas , $this->table, $this->primaryKey, $first);
+            $select = $this->recursiveWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey, $first);
 
-           $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
+            $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
         }
 
         try {
@@ -424,13 +452,43 @@ class Model
                         $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
                             return is_array($value);
                         });
-                        $foreignKey = array_keys($foreignKey)[0];
-                        $rowRel = $relation->find([
-                            $foreignKey => $row->get($this->primaryKey)
-                        ]);
+                        $foreignKey = array_filter($foreignKey, function ($value) {
+                            return array_key_exists("foreignKey", $value);
+                        });
+                        if ($foreignKey) {
+                            $foreignKey = array_keys($foreignKey)[0];
+                            $rowRel = $relation->find([
+                                $foreignKey => $row->get($this->primaryKey)
+                            ]);
+                            if ($rowRel instanceof Model) {
+                                die($rowRel->error);
+                            }
+                            if (count($rowRel) > 0) {
+                                $row->set($relation->table, $rowRel);
+                            }
+                        } else {
+                            // search in foreingkey on the current table 
+                            $foreignKey = array_filter($this->schema, function ($value) {
+                                return is_array($value);
+                            });
 
-                        if (count($rowRel) > 0) {
-                            $row->set($relation->table, $rowRel);
+                            // look if each array contain "foreignKeys" key 
+                            $foreignKey = array_filter($foreignKey, function ($value) {
+                                return array_key_exists("foreignKey", $value);
+                            });
+
+                            // get the first key of the array
+                            $foreignKey = array_keys($foreignKey)[0];
+                            $rowRel = $relation->find([
+                                $relation->primaryKey => $row->get($foreignKey)
+                            ]);
+
+                            if ($rowRel instanceof Model) {
+                                die($rowRel->error);
+                            }
+                            if (count($rowRel) > 0) {
+                                $row->set($relation->table, $rowRel);
+                            }
                         }
                     }
                 }
@@ -443,15 +501,16 @@ class Model
         }
     }
 
-    private function recursiveWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey, $first){
+    private function recursiveWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey, $first)
+    {
         // verify if $data[$first] exist 
         if (!is_array($data[$first])) {
-                $select->where($table . "." . $first, "=", $data[$first]);
-                return $select;
+            $select->where($table . "." . $first, "=", $data[$first]);
+            return $select;
         } else {
             $first = array_key_first($data[$first]);
             $table = array_key_first($data);
-            if(is_array($data[$table][$first])){
+            if (is_array($data[$table][$first])) {
                 $first = array_key_first($data[$table][$first]);
                 $table = array_key_first($data[$table]);
                 $data = $data[$table][$first];
@@ -461,37 +520,42 @@ class Model
         return $select;
     }
 
-    private function recursiveAndWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey){
+    private function recursiveAndWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey)
+    {
         foreach ($relationData as $key => $value) {
-            if(is_string($value)){
+            if (is_string($value)) {
                 break;
             }
             foreach ($value as $k => $v) {
-                if(!is_array($v)){
+                if (!is_array($v)) {
                     $select->andWhere($key . "." . $k, "=", $v);
-
-                }else{
+                } else {
                     $k = array_key_first($v);
                     $v = $v[$k];
-                    $key = array_key_first($relationData);	
+                    $key = array_key_first($relationData);
                     $relationData = $relationData[$key];
                     $this->recursiveAndWhere($select, $schema, $v, $relationData, $key, $primaryKey);
                 }
             }
         }
-        if(is_array($data)){
-        foreach ($data as $key => $value) {
-            if (!is_array($value))
-                $select->andWhere($this->table . "." . $key, "=", $value);
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                if (!is_array($value))
+                    $select->andWhere($this->table . "." . $key, "=", $value);
+            }
         }
-    }
         return $select;
     }
 
-    private function recursiveSelect(Select $select, $schema, $relationsDatas, $table, $primaryKey){
-           // inner join the relation table 
-           foreach ($relationsDatas as $key => $value) {
-            if(is_string($value)){
+    private function recursiveSelect(Select $select, $schema, $relationsDatas, $table, $primaryKey)
+    {
+        // inner join the relation table 
+        foreach ($relationsDatas as $key => $value) {
+            if (is_string($value)) {
+                break;
+            }
+
+            if (is_string($schema[$key])) {
                 break;
             }
             $foreignKey = array_filter($schema[$key]["columns"], function ($value) {
@@ -511,7 +575,7 @@ class Model
                 // get the next primary key
                 $nextPrimaryKey = "id";
                 $this->recursiveSelect($select, $nextSchema, $nextRelationData, $nextTable, $nextPrimaryKey);
-            }else{
+            } else {
                 return $select;
             }
         }
@@ -559,15 +623,15 @@ class Model
         } else {
 
             // inner join the relation table 
-           $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
+            $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
             // select the first element of the array
             // check from where table the column is
 
-           $select = $this->recursiveWhere($select, $this->schema, $data,$relationsDatas , $this->table, $this->primaryKey, $first);
+            $select = $this->recursiveWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey, $first);
 
-           $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
+            $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
         }
-        
+
         try {
             $stmt = $this->pdo->query($select->getSQL());
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -580,12 +644,43 @@ class Model
                     $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
                         return is_array($value);
                     });
-                    $foreignKey = array_keys($foreignKey)[0];
-                    $rowRel = $relation->find([
-                        $foreignKey => $row->get($this->primaryKey)
-                    ]);
-                    if (count($rowRel) > 0) {
-                        $row->set($relation->table, $rowRel);
+                    $foreignKey = array_filter($foreignKey, function ($value) {
+                        return array_key_exists("foreignKey", $value);
+                    });
+                    if ($foreignKey) {
+                        $foreignKey = array_keys($foreignKey)[0];
+                        $rowRel = $relation->find([
+                            $foreignKey => $row->get($this->primaryKey)
+                        ]);
+                        if ($rowRel instanceof Model) {
+                            die($rowRel->error);
+                        }
+                        if (count($rowRel) > 0) {
+                            $row->set($relation->table, $rowRel);
+                        }
+                    } else {
+                        // search in foreingkey on the current table 
+                        $foreignKey = array_filter($this->schema, function ($value) {
+                            return is_array($value);
+                        });
+
+                        // look if each array contain "foreignKeys" key 
+                        $foreignKey = array_filter($foreignKey, function ($value) {
+                            return array_key_exists("foreignKey", $value);
+                        });
+
+                        // get the first key of the array
+                        $foreignKey = array_keys($foreignKey)[0];
+                        $rowRel = $relation->find([
+                            $relation->primaryKey => $row->get($foreignKey)
+                        ]);
+
+                        if ($rowRel instanceof Model) {
+                            die($rowRel->error);
+                        }
+                        if (count($rowRel) > 0) {
+                            $row->set($relation->table, $rowRel);
+                        }
                     }
                 }
             }
