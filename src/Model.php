@@ -132,9 +132,11 @@ class Model
         $columns = $this->columns;
         // remove the primary key if it's autoincrement 
         if (isset($this->autoIncrement)) {
-            $columns = array_filter($this->columns, function ($value) {
-                return $value != $this->primaryKey;
-            });
+            if($this->autoIncrement){
+                $columns = array_filter($this->columns, function ($value) {
+                    return $value != $this->primaryKey;
+                });
+            }
         }
         $relations = array_filter($this->columns, function ($value) {
             return $value instanceof Model;
