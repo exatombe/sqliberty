@@ -4,49 +4,30 @@ require __DIR__ . '/vendor/autoload.php';
 
 use Sqliberty\Database;
 use Sqliberty\Row;
+use Sqliberty\Schema;
 use Sqliberty\Type;
 
 $db = new Database("localhost","cmscustom","root","");
 
 
-$eleves = $db->model("eleves",[
-    "id" => Type::INT,
-    "name" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "emprunts" => [
-        "type" => Type::TABLE,
-        "columns" => [
-            "id" => Type::INT,
-            "livre_id" => ["type" => Type::INT, "foreignKey" => ["table" => "livres", "column" => "id"]],
-            "eleve_id" => ["type" => Type::INT, "foreignKey" => ["table" => "eleves", "column" => "id"]],
-            "created_at" => Type::DATETIME,
-        ],
-    ]
-]);
+$eleves = $db->model("eleve", function(Schema $model){
+    $model->int("id")->autoIncrement()->primaryKey();
+    $model->varchar("nom")->length(50)->nullable();
+    $model->varchar("prenom")->length(50);
+    $model->model("notes", function(Schema $ref){
+        $ref->int("id")->autoIncrement()->primaryKey();
+        $ref->int("eleve_id")->foreignKey("eleve", "id");
+        $ref->int("note");
+        $ref->varchar("matiere")->length(50);
+        $ref->model("commentaires", function(Schema $ref){
+            $ref->int("id")->autoIncrement()->primaryKey();
+            $ref->int("note_id")->foreignKey("notes", "id");
+            $ref->varchar("commentaire")->length(255);
+            return $ref;
+        });
+        return $ref;
+    });
+    return $model;
+});
 
-$livres = $db->model("livres",[
-    "id" => Type::INT,
-    "name" => Type::VARCHAR,
-    "author" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "emprunts" => [
-        "type" => Type::TABLE,
-        "columns" => [
-            "id" => Type::INT,
-            "livre_id" => ["type" => Type::INT, "foreignKey" => ["table" => "livres", "column" => "id"]],
-            "eleve_id" => ["type" => Type::INT, "foreignKey" => ["table" => "eleves", "column" => "id"]],
-            "created_at" => Type::DATETIME,
-        ],
-    ],
-]);
-
-$eleve = $eleves->create([
-    "name" => "John Doe",
-    "created_at" => date("Y-m-d H:i:s"),
-]);
-
-$livre = $livres->create([
-    "name" => "Harry Potter",
-    "author" => "J.K. Rowling",
-    "created_at" => date("Y-m-d H:i:s"),
-]);
+print_r(json_encode($eleves->error, JSON_PRETTY_PRINT));

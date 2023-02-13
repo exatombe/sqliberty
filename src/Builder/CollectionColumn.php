@@ -13,7 +13,7 @@ class CollectionColumn extends ArrayObject
 
     public function addColumn(Column $column): self
     {
-        $this->append($column);
+        $this->offsetSet($column->name, $column);
         return $this;
     }
 

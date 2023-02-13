@@ -29,11 +29,11 @@ class Database{
      * @param bool $autoIncrement
      * @return Model
      */
-    public function model(string $table, array $columns, string $primaryKey = 'id', bool $autoIncrement = false): Model{
+    public function model(string $table, callable $callback): Model{
         if($this->pdo === null)
             throw new \Exception("Database connection error: " . $this->error);
             
-        return new Model($this->pdo, $table, $columns, $primaryKey, $autoIncrement);
+        return new Model($this->pdo, $table, $callback);
     }
 
 }

@@ -69,7 +69,11 @@ class Row extends ArrayObject
      */
     public function save(): self
     {
-        $this->model->update($this->getArrayCopy());
         return $this;
+    }
+
+    public function delete(): bool
+    {
+        return true;
     }
 }

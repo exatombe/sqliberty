@@ -1,0 +1,228 @@
+<?php
+
+namespace Sqliberty;
+
+use Sqliberty\Builder\CollectionColumn;
+use Sqliberty\Builder\Column;
+
+class Schema
+{
+    public string $table;
+    public CollectionColumn $columns;
+    public array $foreignKeys;
+    public array $primaryKeys;
+    public array $uniqueKeys;
+    public array $references;
+
+    public function __construct(string $table)
+    {
+        $this->table = $table;
+        $this->columns = new CollectionColumn();
+        $this->foreignKeys = [];
+        $this->primaryKeys = [];
+        $this->uniqueKeys = [];
+        $this->references = [];
+    }
+
+    public function varchar(string $name){
+        $column = new Column($name);
+        $column->type(Type::VARCHAR);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function int(string $name){
+        $column = new Column($name);
+        $column->type(Type::INT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function text(string $name){
+        $column = new Column($name);
+        $column->type(Type::TEXT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function date(string $name){
+        $column = new Column($name);
+        $column->type(Type::DATE);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function datetime(string $name){
+        $column = new Column($name);
+        $column->type(Type::DATETIME);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function timestamp(string $name){
+        $column = new Column($name);
+        $column->type(Type::TIMESTAMP);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function time(string $name){
+        $column = new Column($name);
+        $column->type(Type::TIME);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function year(string $name){
+        $column = new Column($name);
+        $column->type(Type::YEAR);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function float(string $name){
+        $column = new Column($name);
+        $column->type(Type::FLOAT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function double(string $name){
+        $column = new Column($name);
+        $column->type(Type::DOUBLE);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function decimal(string $name){
+        $column = new Column($name);
+        $column->type(Type::DECIMAL);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function tinyint(string $name){
+        $column = new Column($name);
+        $column->type(Type::TINYINT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function smallint(string $name){
+        $column = new Column($name);
+        $column->type(Type::SMALLINT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function mediumint(string $name){
+        $column = new Column($name);
+        $column->type(Type::MEDIUMINT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function bigint(string $name){
+        $column = new Column($name);
+        $column->type(Type::BIGINT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function bit(string $name){
+        $column = new Column($name);
+        $column->type(Type::BIT);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function boolean(string $name){
+        $column = new Column($name);
+        $column->type(Type::BOOLEAN);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function serial(string $name){
+        $column = new Column($name);
+        $column->type(Type::SERIAL);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function blob(string $name){
+        $column = new Column($name);
+        $column->type(Type::BLOB);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function binary(string $name){
+        $column = new Column($name);
+        $column->type(Type::BINARY);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function enum(string $name){
+        $column = new Column($name);
+        $column->type(Type::ENUM);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function set(string $name){
+        $column = new Column($name);
+        $column->type(Type::SET);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function json(string $name){
+        $column = new Column($name);
+        $column->type(Type::JSON);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
+    public function model(string $name,callable $callback){
+        $this->references[$name] = $callback(new Schema($name));
+    }
+
+    public function getTable(): string{
+        return $this->table;
+    }
+
+    public function getColumns(): CollectionColumn{
+        return $this->columns;
+    }
+
+    public function getForeignKeys(): array{
+        return $this->foreignKeys;
+    }
+
+    public function getPrimaryKeys(): array{
+        return $this->primaryKeys;
+    }
+
+    public function getUniqueKeys(): array{
+        return $this->uniqueKeys;
+    }
+
+    public function getReferences(): array{
+        return $this->references;
+    }
+
+    public function buildSchema(): self{
+        $this->foreignKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
+            return count($column->foreignKey) > 0;
+        });
+        $this->primaryKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
+            return $column->primaryKey;
+        });
+        $this->uniqueKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
+            return $column->unique;
+        });
+        return $this;
+    }
+}

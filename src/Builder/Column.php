@@ -12,7 +12,7 @@ class Column{
     public bool $primaryKey;
     public array $foreignKey;
     public bool $unique;
-    public bool $default;
+    public ?string $default;
 
     public function __construct(string $name)
     {
@@ -23,7 +23,7 @@ class Column{
         $this->autoIncrement = false;
         $this->primaryKey = false;
         $this->unique = false;
-        $this->default = false;
+        $this->default = null;
         $this->foreignKey = [];
     }
 
@@ -39,39 +39,42 @@ class Column{
         return $this;
     }
 
-    public function nullable(bool $nullable): self
+    public function nullable(): self
     {
-        $this->nullable = $nullable;
+        $this->nullable = true;
         return $this;
     }
 
-    public function autoIncrement(bool $autoIncrement): self
+    public function autoIncrement(): self
     {
-        $this->autoIncrement = $autoIncrement;
+        $this->autoIncrement = true;
         return $this;
     }
 
-    public function primaryKey(bool $primaryKey): self
+    public function primaryKey(): self
     {
-        $this->primaryKey = $primaryKey;
+        $this->primaryKey = true;
         return $this;
     }
 
-    public function unique(bool $unique): self
+    public function unique(): self
     {
-        $this->unique = $unique;
+        $this->unique = true;
         return $this;
     }
 
-    public function default(bool $default): self
+    public function default(string $default): self
     {
         $this->default = $default;
         return $this;
     }
 
-    public function foreignKey(array $foreignKey): self
+    public function foreignKey(string $table, string $column): self
     {
-        $this->foreignKey = $foreignKey;
+        $this->foreignKey = [
+            "table" => $table,
+            "column" => $column
+        ];
         return $this;
     }
 
