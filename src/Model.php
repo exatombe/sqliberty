@@ -23,11 +23,13 @@ class Model extends QueryBuilder implements ModelInterface
     private PDO $pdo;
     public string $error = '';
     private Schema $schema;
+    private ReferenceArray $references;
 
     public function __construct(PDO $pdo,string $table, callable $callback)
     {
         parent::__construct();
         $this->pdo = $pdo;
+        $this->references = new ReferenceArray();
         $schema = $callback(new Schema($table));
         if($schema instanceof Schema){
             $this->schema = $schema->buildSchema();
@@ -43,14 +45,20 @@ class Model extends QueryBuilder implements ModelInterface
              * @var Schema $references
              */
              foreach($this->schema->getReferences() as $references){
-                new Model($this->pdo, $references->getTable(), function($schema) use ($references){
+               $ref = new Model($this->pdo, $references->getTable(), function($schema) use ($references){
                     return $references;
                 });
+                $this->references->set($references->getTable(), $ref);
              }
         }catch(PDOException $e){
             $this->errorHandler($e);
         }
         
+    }
+
+    public function getPDO(): PDO
+    {
+        return $this->pdo;
     }
 
     public function getSchema(): Schema
@@ -63,20 +71,81 @@ class Model extends QueryBuilder implements ModelInterface
         $this->error = $e->getMessage();
     }
 
-    public function create(array $data): Row
+    public function create(array $data): Row|bool
     {
-        return new Row($this, $data);
+        $insert = $this->insert($this->schema->getTable());
+        $columns = $this->schema->getColumns();
+        // remove the primary key if it's autoincrement
+        $primaryKey = $this->schema->getPrimaryKey();
+        /**
+         * @var Column $column
+         */ 
+        $column = array_filter($columns->getArrayCopy(), function (Column $value) use ($primaryKey) {
+            return $value->name == $primaryKey;
+        });
+        if($column->autoIncrement()){
+            $columns = array_filter($columns->getArrayCopy(), function (Column $value) use ($primaryKey) {
+                return $value->name != $primaryKey;
+            });
+        }
+
+        $insert->addColumns($columns);
+
+        // Get ref columns
+        $refs = $this->schema->getReferences();
+        $dataCopy = $data;
+        $refsData = [];
+        foreach ($refs as $ref) {
+            $refColumns = $ref->getColumns();
+            $refTable = $ref->getTable();
+            $refData = [];
+            foreach ($refColumns as $refColumn) {
+                $refData[$refColumn] = $data[$refColumn];
+                unset($data[$refColumn]);
+            }
+            $refsData[$refTable] = $refData;
+        }
+        
+        $insert->addValues($data);
+        try{
+            $this->pdo->exec($insert->getSQL());
+            $id = $this->pdo->lastInsertId();
+            $data = array_merge($dataCopy, [$primaryKey => $id]);
+            $row = new Row($this, $data);
+            foreach($refsData as $refTable => $refData){
+
+                $ref = $this->references->get($refTable);
+                // get foreign key column if it references the current table 
+                $foreignKeys = $ref->getSchema()->getForeignKeys();
+                /**
+                 * @var Column[] $foreignKey
+                 */
+                $foreignKey = array_filter($foreignKeys, function (Column $value) use ($refTable) {
+                    return $value->foreignKey['table'] == $refTable;
+                });
+                $foreignKey = $foreignKey[0];
+                $refData[$foreignKey->name] = $id;
+                $ref->create($refData);
+            }
+            return $row;
+        }catch(PDOException $e){
+            $this->errorHandler($e);
+            return false;
+        }
+
     }
 
     public function find(array $data): RowsArray
     {
-        $array = new RowsArray($this);
-        foreach ($data as $key => $value) {
-            if($value instanceof Row){
-                $array->set($key, $value);
-            }
-        }
-        return $array;
+        $columnsName = array_filter($this->schema->getColumns()->getArrayCopy(), function (Column|Model $value) {
+            return !$value instanceof Model;
+        });
+        $columnsName = array_map(function (Column $value) {
+            return $value->name;
+        }, $columnsName);
+        $select = $this->select($columnsName);
+        $select->from($this->schema->getTable());
+        return new RowsArray($this, $data);
     }
 
     public function findOne(array $data): Row
@@ -89,192 +158,16 @@ class Model extends QueryBuilder implements ModelInterface
         return new Row($this, ["id" => $id]);
     }
 
-    // public function __construct(PDO $pdo, string $table, array $columns = [], string $primaryKey = 'id', bool $autoIncrement = true)
-    // {
-    //     $this->pdo = $pdo;
-    //     $this->builder = new QueryBuilder();
-    //     $this->table = $table;
-    //     $this->schema = $columns;
-    //     $autoIncrement = $autoIncrement || true;
-    //     // check if 
-    //     $table = $this->builder->createTableIfNotExist($table);
-    //     $colColumns = new CollectionColumn();
-    //     $relationsColumns = [];
-    //     // the array columns is ["name" => "type"] 
-    //     foreach ($columns as $name => $type) {
-    //         // add also columns to $this->columns
-    //         // check if the type is a string or not
-    //         if (!is_string($type)) {
-    //             // make foreign key here to link to another table 
-    //             if ($type["type"] == "table") {
-    //                 array_push($relationsColumns, [
-    //                     "name" => $name,
-    //                     "columns" => $type["columns"],
-    //                 ]);
-    //             } else {
-    //                 $curCol = new Column($name);
-    //                 $curCol->type($type["type"]);
-    //                 if (isset($type["length"])) {
-    //                     $curCol->length(intval($type["length"]));
-    //                 }
-    //                 if (isset($type["default"])) {
-    //                     $curCol->default(boolval($type["default"]));
-    //                 }
-    //                 if (isset($type["null"])) {
-    //                     $curCol->nullable(boolval($type["null"]));
-    //                 }
-    //                 if (isset($type["unique"])) {
-    //                     $curCol->unique(boolval($type["unique"]));
-    //                 }
-    //                 if (isset($type["primary"])) {
-    //                     $curCol->primaryKey(boolval($type["primary"]));
-    //                 }
-    //                 if (isset($type["auto"])) {
-    //                     $curCol->autoIncrement(boolval($type["auto"]));
-    //                 }
-    //                 if (isset($type["foreignKey"])) {
-    //                     if (isset($type["foreignKey"]["table"])) {
-    //                         if (isset($type["foreignKey"]["column"])) {
-    //                             $curCol->foreignKey($type["foreignKey"]);
-    //                         } else {
-    //                             die("You must specify the column of the foreign key");
-    //                         }
-    //                     } else {
-    //                         die("You must specify the table of the foreign key");
-    //                     }
-    //                 }
-    //                 $colColumns->addColumn($curCol);
-    //                 array_push($this->columns, $name);
-    //             }
-    //         } else {
-    //             $curCol = new Column($name);
-    //             $curCol->type($type);
-    //             // check if the type is VARCHAR, TEXT, MEDIUMTEXT, LONGTEXT and add the length*
-    //             if ($this->addLength($type) > 0) {
-    //                 $curCol->length($this->addLength($type));
-    //             }
-    //             // check if the column is the primary key
-    //             if ($name == $primaryKey) {
-    //                 $this->primaryKey = $name;
-    //                 $curCol->primaryKey(true);
-    //                 // check if the primary key is autoincrement
-    //                 if ($autoIncrement) {
-    //                     $curCol->autoIncrement(true);
-    //                 } else {
-    //                     $this->autoIncrement = false;
-    //                     array_push($this->columns, $name);
-    //                 }
-    //             } else {
-    //                 array_push($this->columns, $name);
-    //             }
-    //             $colColumns->addColumn($curCol);
-    //         }
-    //     }
+    public function getReferences(): ReferenceArray
+    {
+        return $this->references;
+    }
 
-    //     $table->addColumns($colColumns);
+    public function isReference(string $table): bool
+    {
+        return $this->references->has($table);
+    }
 
-    //     // execute the query 
-    //     try {
-    //         $this->pdo->exec($table->getSQL());
-
-    //         // check if there is relations columns
-    //         if (count($relationsColumns) > 0) {
-    //             foreach ($relationsColumns as $relation) {
-    //                 $rel = new Model($this->pdo, $relation["name"], $relation["columns"]);
-    //                 array_push($this->columns, $rel);
-    //             }
-    //         }
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //     }
-    // }
-    // /**
-    //  * Method to add length to the column
-    //  * @param string $type
-    //  * @return int
-    //  */
-    // private function addLength(string $type)
-    // {
-    //     switch ($type) {
-    //         case Type::VARCHAR:
-    //             return 255;
-    //         case Type::TEXT:
-    //             return 65535;
-    //         case Type::MEDIUMTEXT:
-    //             return 16777215;
-    //         case Type::LONGTEXT:
-    //             return 4294967295;
-    //         default:
-    //             return 0;
-    //     }
-    // }
-    // /**
-    //  * Method to create a new row in the table
-    //  * @param array $data
-    //  * @return Row|Model
-    //  */
-    // public function create(array $data): Row|Model
-    // {
-    //     $insert = $this->builder->insert($this->table);
-
-    //     $columns = $this->columns;
-    //     // remove the primary key if it's autoincrement 
-    //     if (isset($this->autoIncrement)) {
-    //         if ($this->autoIncrement) {
-    //             $columns = array_filter($this->columns, function ($value) {
-    //                 return $value != $this->primaryKey;
-    //             });
-    //         }
-    //     }
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-    //     $relationData = array_filter($data, function ($value) {
-    //         return is_array($value);
-    //     });
-
-    //     $columns = array_filter($columns, function ($value) {
-    //         return !$value instanceof Model;
-    //     });
-    //     $data = array_filter($data, function ($value) {
-    //         return !is_array($value);
-    //     });
-    //     $insert->addColumns($columns);
-    //     $insert->addValues($data);
-    //     try {
-    //         // return the current data inserted with a new 
-    //         $this->pdo->exec($insert->getSQL());
-    //         // add id to the data
-    //         $id = $this->pdo->lastInsertId();
-    //         $data["id"] = $id;
-
-    //         $row = new Row($this, $data);
-
-    //         // check if there is relations columns
-    //         if (count($relations) > 0) {
-    //             /**
-    //              * @var Model[] $relations
-    //              */
-    //             foreach ($relations as $relation) {
-    //                 $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                     return is_array($value);
-    //                 });
-    //                 $foreignKey = array_keys($foreignKey)[0];
-    //                 $arrayOfRows = [];
-    //                 foreach ($relationData[$relation->table] as $key => $value) {
-    //                     $value[$foreignKey] = $id;
-    //                     array_push($arrayOfRows, $relation->create($value));
-    //                 }
-    //                 $row->set($relation->table, $arrayOfRows);
-    //             }
-    //         }
-
-    //         return $row;
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
     // /**
     //  * Method to update a row in the table
     //  * @return Row|Model

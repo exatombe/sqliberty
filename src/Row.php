@@ -3,6 +3,10 @@
 namespace Sqliberty;
 
 use ArrayObject;
+use PDO;
+use Sqliberty\Builder\CollectionSet;
+use Sqliberty\Builder\Set;
+
 /**
  * Class Row (Row is a row in the database)
  * @package Sqliberty
@@ -10,10 +14,12 @@ use ArrayObject;
 class Row extends ArrayObject
 {
     private Model $model;
+    private PDO $pdo;
     public function __construct(Model $model,array $data)
     {
         parent::__construct($data);
         $this->model = $model;
+        $this->pdo = $model->getPdo();
     }
     /**
      * Get a single property from the row
@@ -51,6 +57,11 @@ class Row extends ArrayObject
     {
         return $this->model->find($data);
     }
+
+    public function has(string $name): bool
+    {
+        return $this->offsetExists($name);
+    }
     /**
      * Update the current row
      * @param array $data
@@ -59,7 +70,12 @@ class Row extends ArrayObject
     public function update(array $data): self
     {
      foreach ($data as $key => $value) {
-         $this->offsetSet($key, $value);
+         // Check if the key is a reference or if it doesn't exist
+        if($this->model->isReference($key) || !$this->has($key)) {
+            continue;
+        }else {
+            $this->set($key, $value);
+        }
      }
         return $this;
     }
@@ -69,7 +85,23 @@ class Row extends ArrayObject
      */
     public function save(): self
     {
-        return $this;
+        $update = $this->model->update($this->model->getSchema()->getTable());
+        $col = new CollectionSet(); 
+
+        foreach ($this as $key => $value) {
+           if(!is_array($value)) {
+               $col->addSet(new Set($key, $value));  
+           }
+        }
+        $update->set($col);
+        $key = $this->model->getSchema()->getPrimaryKey();
+        $update->where($key,"=", $this->get($key));
+        try {
+            $this->pdo->exec($update->getSQL());
+            return $this;
+        } catch (\PDOException $e) {
+            throw new \PDOException($e->getMessage());
+        }
     }
 
     public function delete(): bool

@@ -22,6 +22,16 @@ class RowsArray extends ArrayObject{
         $this->offsetSet($index, $row);
     }
 
+    public function has(int $index): bool
+    {
+        return $this->offsetExists($index);
+    }
+
+    public function remove(int $index)
+    {
+        $this->offsetUnset($index);
+    }
+
     public function __isset(string $index)
     {
         return $this->offsetExists($index);

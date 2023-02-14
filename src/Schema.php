@@ -10,16 +10,22 @@ class Schema
     public string $table;
     public CollectionColumn $columns;
     public array $foreignKeys;
-    public array $primaryKeys;
+    public string $primaryKey;
+    /**
+     * @var Column[] $uniqueKeys
+     */
     public array $uniqueKeys;
-    public array $references;
+    /**
+     * @var Schema[] $references
+     */
+    public $references;
 
     public function __construct(string $table)
     {
         $this->table = $table;
         $this->columns = new CollectionColumn();
         $this->foreignKeys = [];
-        $this->primaryKeys = [];
+        $this->primaryKey = "id";
         $this->uniqueKeys = [];
         $this->references = [];
     }
@@ -201,15 +207,20 @@ class Schema
         return $this->foreignKeys;
     }
 
-    public function getPrimaryKeys(): array{
-        return $this->primaryKeys;
+    public function getPrimaryKey(): string{
+        return $this->primaryKey;
     }
-
-    public function getUniqueKeys(): array{
+    /**
+     * @return Column[]
+     */
+    public function getUniqueKeys(){
         return $this->uniqueKeys;
     }
 
-    public function getReferences(): array{
+    /**
+     * @return Schema[]
+     */
+    public function getReferences(){
         return $this->references;
     }
 
@@ -217,9 +228,26 @@ class Schema
         $this->foreignKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
             return count($column->foreignKey) > 0;
         });
-        $this->primaryKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
+        /**
+         * @var Column[] $primaryKeys
+         */
+        $primaryKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
             return $column->primaryKey;
         });
+        if(count($primaryKeys) > 1){
+            // throw 
+            throw new \Exception("Only one primary key is allowed");
+        }elseif(count($primaryKeys) === 1){
+            // check if primary key is numeric 
+            if(!in_array($primaryKeys[0]->type, [Type::INT, Type::TINYINT, Type::SMALLINT, Type::MEDIUMINT, Type::BIGINT, Type::SERIAL])){
+                throw new \Exception("Primary key must be numeric, so you need to use type int, tinyint, smallint, mediumint, bigint or serial");
+            }
+            $this->primaryKey = $primaryKeys[0]->name;
+        }else{
+            $this->int("id")->primaryKey()->autoIncrement();
+            $this->primaryKey = "id";
+        }
+
         $this->uniqueKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
             return $column->unique;
         });
