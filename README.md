@@ -36,11 +36,11 @@ $db = new Database("host","database","user","password","port");
 require_once __DIR__ . '/vendor/autoload.php';
 
 use SQLiberty\Database;
-use SQLiberty\Model;
+use SQLiberty\Schema;
 
 $db = new Database("host","database","user","password","port");
 
-$users = $db->model(function(Model $table){
+$users = $db->model(function(Schema $table){
     $table->int("id");
     $table->varchar("name");
     $table->varchar("email");
@@ -72,11 +72,11 @@ Regular use flow  of the model :
 require_once __DIR__ . '/vendor/autoload.php';
 
 use SQLiberty\Database;
-use SQLiberty\Model;
+use SQLiberty\Schema;
 
 $db = new Database("host","database","user","password","port");
 
-$users = $db->model(function(Model $table){
+$users = $db->model(function(Schema $table){
     $table->int("id");
     $table->varchar("name");
     $table->varchar("email");
@@ -103,14 +103,14 @@ $user = $users->update([
 ```php
 <?php
 
-$users = $db->model(function(Model $table){
+$users = $db->model(function(Schema $table){
     $table->int("id");
     $table->varchar("name");
     $table->varchar("email");
     $table->varchar("password");
     $table->datetime("created_at");
     $table->datetime("updated_at");
-    $table->model("posts",function(Model $table){
+    $table->model("posts",function(Schema $table){
         $table->int("id");
         $table->int("user_id");
         $table->varchar("title");
@@ -118,7 +118,7 @@ $users = $db->model(function(Model $table){
         $table->datetime("created_at");
         $table->datetime("updated_at");
         $table->belongsTo("user");
-        $table->model("comments",function(Model $table){
+        $table->model("comments",function(Schema $table){
             $table->int("id");
             $table->int("post_id");
             $table->varchar("content");
