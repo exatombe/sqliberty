@@ -8,7 +8,7 @@ class RowsArray extends ArrayObject{
     private Model $model;
     public function __construct(Model $model,array $data = [])
     {
-        parent::__construct($data);
+        parent::__construct([]);
         $this->model = $model;
     }
 
@@ -44,8 +44,24 @@ class RowsArray extends ArrayObject{
 
     public function add(array $data): self
     {
-        $this->offsetSet($this->count(), $this->model->create($data));
+        $row = $this->model->create($data);
+        if($row){
+            $this->set($row->get($this->model->getSchema()->getPrimaryKey()), $row);
+        }else{
+            throw new \Exception($this->model->error);
+        }
         return $this;
+    }
+
+    public function first(): Row|null
+    {
+        if($this->count() > 0){
+            foreach ($this as $row) {
+                return $row;
+            }
+        }else{
+            return null;
+        }
     }
     
 

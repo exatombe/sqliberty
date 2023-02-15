@@ -14,8 +14,9 @@ class Database{
     private string $error = '';
     public function __construct($host,$db,$user,$pass,$port = 3306){
         try{
-            $this->pdo = new PDO("mysql:host=$host;port=$port;dbname=$db", $user, $pass,[PDO::ATTR_PERSISTENT => true]);
+            $this->pdo = new PDO("mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4", $user, $pass,[PDO::ATTR_PERSISTENT => true]);
             $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $this->pdo->setAttribute(PDO::MYSQL_ATTR_INIT_COMMAND, "SET NAMES 'utf8mb4'");
         }catch(PDOException $e){
             $this->error = $e->getMessage();
         }

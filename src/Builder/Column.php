@@ -110,7 +110,7 @@ class Column{
         }
 
         if(count($this->foreignKey) > 0){
-            $column .= ", CONSTRAINT fk_" . $this->name . " FOREIGN KEY (" . $this->name . ") REFERENCES " . $this->foreignKey["table"] . "(" . $this->foreignKey["column"] . ")";
+            $column .= ", CONSTRAINT fk_" . $this->name . " FOREIGN KEY (" . $this->name . ") REFERENCES " . $this->foreignKey["table"] . "(" . $this->foreignKey["column"] . ") ON DELETE CASCADE ON UPDATE CASCADE";
         }
 
         return $column;

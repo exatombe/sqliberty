@@ -15,6 +15,7 @@ class Row extends ArrayObject
 {
     private Model $model;
     private PDO $pdo;
+    private string $error = "";
     public function __construct(Model $model,array $data)
     {
         parent::__construct($data);
@@ -24,7 +25,7 @@ class Row extends ArrayObject
     /**
      * Get a single property from the row
      * @param string $name
-     * @return string|Row[]
+     * @return string|RowsArray
      */
     public function get(string $name)
     {
@@ -71,10 +72,13 @@ class Row extends ArrayObject
     {
      foreach ($data as $key => $value) {
          // Check if the key is a reference or if it doesn't exist
-        if($this->model->isReference($key) || !$this->has($key)) {
-            continue;
-        }else {
-            $this->set($key, $value);
+         if(!$value instanceof RowsArray) {
+            if($this->has($key)) {
+                // check if the value is the primary key
+                if($key != $this->model->getSchema()->getPrimaryKey()) {
+                    $this->set($key, $value);
+                }
+            }
         }
      }
         return $this;
@@ -83,15 +87,17 @@ class Row extends ArrayObject
      * Save modifications to the row and update the database
      * @return Row
      */
-    public function save(): self
+    public function save(): self|bool
     {
         $update = $this->model->update($this->model->getSchema()->getTable());
         $col = new CollectionSet(); 
 
         foreach ($this as $key => $value) {
-           if(!is_array($value)) {
-               $col->addSet(new Set($key, $value));  
-           }
+           if(!$value instanceof RowsArray) {
+                if($this->has($key)) {
+                    $col->addSet(new Set($key, $value));
+                }
+            }
         }
         $update->set($col);
         $key = $this->model->getSchema()->getPrimaryKey();
@@ -100,12 +106,27 @@ class Row extends ArrayObject
             $this->pdo->exec($update->getSQL());
             return $this;
         } catch (\PDOException $e) {
-            throw new \PDOException($e->getMessage());
+            $this->error = $e->getMessage();
+            return false;
         }
     }
 
     public function delete(): bool
     {
-        return true;
+        $delete = $this->model->delete($this->model->getSchema()->getTable());
+        $key = $this->model->getSchema()->getPrimaryKey();
+        $delete->where($key,"=", $this->get($key));
+        try {
+            $this->pdo->exec($delete->getSQL());
+            return true;
+        } catch (\PDOException $e) {
+            $this->error = $e->getMessage();
+            return false;
+        }
+    }
+
+    public function getError(): string
+    {
+        return $this->error;
     }
 }

@@ -224,6 +224,17 @@ class Schema
         return $this->references;
     }
 
+    /**
+     * @return Schema|false
+     */
+
+    public function getReference(string $name): bool|Schema{
+        $refs = array_filter($this->references, function (Schema $schema) use ($name){
+            return $schema->getTable() === $name;
+        });
+        return count($refs) > 0 ? array_values($refs)[0] : false;
+    }
+
     public function buildSchema(): self{
         $this->foreignKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
             return count($column->foreignKey) > 0;
@@ -239,10 +250,10 @@ class Schema
             throw new \Exception("Only one primary key is allowed");
         }elseif(count($primaryKeys) === 1){
             // check if primary key is numeric 
-            if(!in_array($primaryKeys[0]->type, [Type::INT, Type::TINYINT, Type::SMALLINT, Type::MEDIUMINT, Type::BIGINT, Type::SERIAL])){
+            if(!in_array(array_values($primaryKeys)[0]->type, [Type::INT, Type::TINYINT, Type::SMALLINT, Type::MEDIUMINT, Type::BIGINT, Type::SERIAL])){
                 throw new \Exception("Primary key must be numeric, so you need to use type int, tinyint, smallint, mediumint, bigint or serial");
             }
-            $this->primaryKey = $primaryKeys[0]->name;
+            $this->primaryKey =array_values($primaryKeys)[0]->name;
         }else{
             $this->int("id")->primaryKey()->autoIncrement();
             $this->primaryKey = "id";

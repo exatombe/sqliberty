@@ -30,4 +30,11 @@ $eleves = $db->model("eleve", function(Schema $model){
     return $model;
 });
 
-print_r(json_encode($eleves->error, JSON_PRETTY_PRINT));
+$john = $eleves->get(5445454);
+
+// print_r($john);
+// output terminal in utf8 :
+
+
+if($john)
+print_r(json_encode($john->delete(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));

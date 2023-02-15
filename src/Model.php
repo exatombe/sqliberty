@@ -25,35 +25,34 @@ class Model extends QueryBuilder implements ModelInterface
     private Schema $schema;
     private ReferenceArray $references;
 
-    public function __construct(PDO $pdo,string $table, callable $callback)
+    public function __construct(PDO $pdo, string $table, callable $callback)
     {
         parent::__construct();
         $this->pdo = $pdo;
         $this->references = new ReferenceArray();
         $schema = $callback(new Schema($table));
-        if($schema instanceof Schema){
+        if ($schema instanceof Schema) {
             $this->schema = $schema->buildSchema();
-        }else{
+        } else {
             throw new \Exception("The callback must return an instance of Sqliberty\Schema");
         }
 
         $table = $this->createTableIfNotExist($table);
         $table->addcolumns($this->schema->getColumns());
-        try{
+        try {
             $this->pdo->exec($table->getSQL());
             /**
              * @var Schema $references
              */
-             foreach($this->schema->getReferences() as $references){
-               $ref = new Model($this->pdo, $references->getTable(), function($schema) use ($references){
+            foreach ($this->schema->getReferences() as $references) {
+                $ref = new Model($this->pdo, $references->getTable(), function ($schema) use ($references) {
                     return $references;
                 });
                 $this->references->set($references->getTable(), $ref);
-             }
-        }catch(PDOException $e){
+            }
+        } catch (PDOException $e) {
             $this->errorHandler($e);
         }
-        
     }
 
     public function getPDO(): PDO
@@ -71,48 +70,75 @@ class Model extends QueryBuilder implements ModelInterface
         $this->error = $e->getMessage();
     }
 
-    public function create(array $data): Row|bool
+    private function reorganizeData($keys, $data) {
+        $result = array();
+        foreach ($keys as $key) {
+          if (array_key_exists($key, $data)) {
+            $result[$key] = $data[$key];
+          }
+        }
+        return $result;
+      }
+      
+
+    public function create(array $data, $iteration = 0): Row|bool
     {
         $insert = $this->insert($this->schema->getTable());
         $columns = $this->schema->getColumns();
         // remove the primary key if it's autoincrement
         $primaryKey = $this->schema->getPrimaryKey();
         /**
-         * @var Column $column
-         */ 
+         * @var Column[] $column
+         */
         $column = array_filter($columns->getArrayCopy(), function (Column $value) use ($primaryKey) {
             return $value->name == $primaryKey;
         });
-        if($column->autoIncrement()){
-            $columns = array_filter($columns->getArrayCopy(), function (Column $value) use ($primaryKey) {
-                return $value->name != $primaryKey;
-            });
+
+        $columnsToSelect = array_map(function (Column $column) {
+            return $column->name;
+        }, $columns->getArrayCopy());
+        if (count($column) > 0) {
+            $column = array_values($column)[0];
+            if ($column->autoIncrement) {
+                $columnsToSelect = array_filter(array_values($columnsToSelect), function (string $value) use ($primaryKey) {
+                    return $value != $primaryKey;
+                });
+            }
         }
 
-        $insert->addColumns($columns);
+        $insert->addColumns(array_values($columnsToSelect));
 
         // Get ref columns
         $refs = $this->schema->getReferences();
         $dataCopy = $data;
         $refsData = [];
         foreach ($refs as $ref) {
-            $refColumns = $ref->getColumns();
+            /**
+             * @var Column[] $refColumns
+             */
+            $refColumns = $ref->getColumns()->getArrayCopy();
             $refTable = $ref->getTable();
             $refData = [];
-            foreach ($refColumns as $refColumn) {
-                $refData[$refColumn] = $data[$refColumn];
-                unset($data[$refColumn]);
+            if(isset($data[$refTable]) && is_array($data[$refTable])){
+                $refData = $data[$refTable];
+                $refsData[$refTable] = $data[$refTable];
             }
-            $refsData[$refTable] = $refData;
         }
-        
+        $data = array_filter($data, function ($value){
+            return !is_array($value);
+        });
+        // reorganize data to match the columns 
+        $data = $this->reorganizeData($columnsToSelect, $data);
         $insert->addValues($data);
-        try{
+        try {
             $this->pdo->exec($insert->getSQL());
             $id = $this->pdo->lastInsertId();
             $data = array_merge($dataCopy, [$primaryKey => $id]);
             $row = new Row($this, $data);
-            foreach($refsData as $refTable => $refData){
+            foreach ($this->references as $ref) {
+                $row->set($ref->getSchema()->getTable(), new RowsArray($ref));
+            }
+            foreach ($refsData as $refTable => $refData) {
 
                 $ref = $this->references->get($refTable);
                 // get foreign key column if it references the current table 
@@ -121,41 +147,220 @@ class Model extends QueryBuilder implements ModelInterface
                  * @var Column[] $foreignKey
                  */
                 $foreignKey = array_filter($foreignKeys, function (Column $value) use ($refTable) {
-                    return $value->foreignKey['table'] == $refTable;
+                    return $value->foreignKey['table'] == $this->schema->getTable();
                 });
-                $foreignKey = $foreignKey[0];
-                $refData[$foreignKey->name] = $id;
-                $ref->create($refData);
+                if(count($foreignKey) > 0){
+                    $foreignKey = array_values($foreignKey)[0];
+                }else{
+                    continue;
+                }
+                if ($this->isReference($refTable)) {
+                    foreach ($refData as $key => $value) {
+                        if (is_array($value)) {
+                            $value[$foreignKey->name] = $id;
+                            $row->get($refTable)->add($value);
+                        }
+                    }
+                }
             }
             return $row;
-        }catch(PDOException $e){
+        } catch (PDOException $e) {
             $this->errorHandler($e);
             return false;
         }
-
     }
 
-    public function find(array $data): RowsArray
+    public function find(array $data): RowsArray|bool
     {
         $columnsName = array_filter($this->schema->getColumns()->getArrayCopy(), function (Column|Model $value) {
             return !$value instanceof Model;
         });
         $columnsName = array_map(function (Column $value) {
-            return $value->name;
+            return $this->schema->getTable() . '.' . $value->name . ' as ' . $value->name;
         }, $columnsName);
         $select = $this->select($columnsName);
         $select->from($this->schema->getTable());
-        return new RowsArray($this, $data);
+        $refs = $this->references->getArrayCopy();
+        // make a recursive join if there is references in the table and if the reference is passed in the data array
+        $refs = $this->schema->getReferences();
+        if(count($refs) > 0){
+            foreach ($refs as $ref) {
+                $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
+            }
+            foreach ($refs as $ref) {
+                $select = $this->joinWhere($ref, $data, $select, $this->schema->getTable());
+            }
+        }else{
+            $select = $this->joinWhere($this->schema, $data, $select, $this->schema->getTable());
+        }
+        try {
+            $stmt = $this->pdo->prepare($select->getSQL());
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $rowsArray = new RowsArray($this);
+            foreach ($rows as $row) {
+                // for each row, add the reference rows 
+                $row = new Row($this, $row);
+                foreach ($this->references as $ref) {
+                    // get foreign key for the current table 
+                    $foreignKeys = $ref->getSchema()->getForeignKeys();
+                    /**
+                     * @var Column[] $foreignKey
+                     */
+                    $foreignKey = array_filter($foreignKeys, function (Column $value) use ($ref) {
+                        return $value->foreignKey['table'] == $this->getSchema()->getTable();
+                    });
+                    if(count($foreignKey) == 0) {
+                        continue;
+                    }else {
+                        $foreignKey = array_values($foreignKey)[0];
+                    }
+                    $rowToFind = $ref->find([
+                        $foreignKey->name => $row->get($this->schema->getPrimaryKey())
+                    ]);
+                    $row->set($ref->getSchema()->getTable(), $rowToFind);
+                }
+                $rowsArray->set($row->get($this->schema->getPrimaryKey()), $row);
+            }
+            return $rowsArray;
+        } catch (PDOException $e) {
+            $this->errorHandler($e);
+            return false;
+        }
     }
 
-    public function findOne(array $data): Row
+    private function joinForeignKeys(Schema $ref, array $data, Select $select, $currentTable): Select
     {
-        return new Row($this, $data);
+        $foreignKeys = $ref->getForeignKeys();
+        /**
+         * @var Column[] $foreignKey
+         */
+        $foreignKey = array_filter($foreignKeys, function (Column $value) use ($currentTable) {
+            return $value->foreignKey['table'] == $currentTable;
+        });
+        if(count($foreignKey) == 0) {
+            return $select;
+        }else {
+            $foreignKey = array_values($foreignKey)[0];
+        }
+        $refColumn = $ref->getTable() . "." . $foreignKey->name;
+        $primaryKey = $this->schema->getTable() . "." . $this->schema->getPrimaryKey();
+        // check if $data has the key of the table 
+        if (isset($data[$ref->getTable()])) {
+            $refData = $data[$ref->getTable()];
+            $select->join($ref->getTable(), $refColumn, "=", $primaryKey);
+            // recursively join foreign keys of referenced tables
+            foreach ($refData as $row) {
+                foreach ($row as $key => $value) {
+                    $subRef = $ref->getReference($key);
+                    if ($subRef) {
+                        $this->joinForeignKeys($subRef, $data, $select, $ref->getTable());
+                    }
+                }
+            }
+        }
+        return $select;
     }
 
-    public function get(int $id): Row
+    private function getFirstKey(array $currentData, Schema $table): array
     {
-        return new Row($this, ["id" => $id]);
+        foreach ($currentData as $key => $value) {
+            if (!is_array($value)) {
+                return ["key" => $key, "value" => $value, "table" => $table->getTable()];
+            } else {
+                // get the schema of the referenced table 
+                $ref = $table->getReference($key);
+                if ($ref) {
+                    return $this->getFirstKey($value, $ref);
+                } else {
+                    return $this->getFirstKey($value, $table);
+                }
+            }
+        }
+    }
+
+    private function joinWhere(Schema $ref, array $data, Select $select, $currentTable)
+    {
+
+        
+        $firstKey = $this->getFirstKey($data, $this->schema);
+        $select->where($firstKey["table"] . "." . $firstKey["key"], "=", $firstKey["value"]);
+        foreach ($data as $key => $value) {
+            if($key != $firstKey["key"]) {
+              if (is_array($value)) {
+                $subRef = $ref->getReference($key);
+                if ($subRef) {
+                    $this->joinWhere($subRef, $data, $select, $ref->getTable());
+                }
+            } else {
+                $select->andWhere($ref->getTable() . "." . $key, "=", $value);
+            }
+        }    
+        }
+
+        return $select;
+    }
+
+    public function findOne(array $data): Row|bool|null
+    {
+        $columnsName = array_filter($this->schema->getColumns()->getArrayCopy(), function (Column|Model $value) {
+            return !$value instanceof Model;
+        });
+        $columnsName = array_map(function (Column $value) {
+            return $this->schema->getTable() . '.' . $value->name . ' as ' . $value->name;
+        }, $columnsName);
+        $select = $this->select($columnsName);
+        $select->from($this->schema->getTable());
+        $refs = $this->references->getArrayCopy();
+        // make a recursive join if there is references in the table and if the reference is passed in the data array
+        $refs = $this->schema->getReferences();
+        foreach ($refs as $ref) {
+            $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
+        }
+        foreach ($refs as $ref) {
+            $select = $this->joinWhere($ref, $data, $select, $this->schema->getTable());
+        }
+        $select->limit(1);
+        try {
+            $stmt = $this->pdo->prepare($select->getSQL());
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $rowsArray = new RowsArray($this);
+            foreach ($rows as $row) {
+                // for each row, add the reference rows 
+                $row = new Row($this, $row);
+                foreach ($this->references as $ref) {
+                    // get foreign key for the current table 
+                    $foreignKeys = $ref->getSchema()->getForeignKeys();
+                    /**
+                     * @var Column[] $foreignKey
+                     */
+                    $foreignKey = array_filter($foreignKeys, function (Column $value) use ($ref) {
+                        return $value->foreignKey['table'] == $this->getSchema()->getTable();
+                    });
+                    if(count($foreignKey) == 0) {
+                        continue;
+                    }else {
+                        $foreignKey = array_values($foreignKey)[0];
+                    }
+                    $rowToFind = $ref->find([
+                        $foreignKey->name => $row->get($this->schema->getPrimaryKey())
+                    ]);
+                    $row->set($ref->getSchema()->getTable(), $rowToFind);
+                }
+                $rowsArray->set($row->get($this->schema->getPrimaryKey()), $row);
+            }
+            // return one row or null if there is no row
+            return $rowsArray->first() ?? null;
+        } catch (PDOException $e) {
+            $this->errorHandler($e);
+            return false;
+        }
+    }
+
+    public function get(int $id): Row|null|bool
+    {
+        return $this->findOne([$this->schema->getPrimaryKey() => $id]);
     }
 
     public function getReferences(): ReferenceArray
@@ -167,480 +372,4 @@ class Model extends QueryBuilder implements ModelInterface
     {
         return $this->references->has($table);
     }
-
-    // /**
-    //  * Method to update a row in the table
-    //  * @return Row|Model
-    //  */
-    // public function update(array $data): Row|Model
-    // {
-    //     $update = $this->builder->update($this->table);
-    //     $set = new CollectionSet();
-    //     // si primaryKey is undefined return error
-    //     if (!isset($this->primaryKey)) {
-    //         return "Unknow primary key can't update";
-    //     }
-    //     foreach ($data as $key => $value) {
-    //         if (in_array($key, $this->columns)) {
-    //             if (is_string($value)) {
-    //                 $set->addSet(new Set($key, $value));
-    //             }
-    //         }
-    //     }
-
-    //     // check if their are relations columns with a foreign key
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-    //     // get relations data
-    //     $relationData = array_filter($data, function ($value) {
-    //         return is_array($value);
-    //     });
-    //     $update->set($set)
-    //         ->where($this->primaryKey, "=", $data[$this->primaryKey]);
-    //     try {
-    //         $this->pdo->exec($update->getSQL());
-    //         $row = new Row($this, $data);
-    //         // check if there is relations columns
-    //         if (count($relations) > 0) {
-    //             /**
-    //              * @var Model[] $relations
-    //              */
-    //             foreach ($relations as $relation) {
-    //                 $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                     return is_array($value);
-    //                 });
-    //                 $foreignKey = array_keys($foreignKey)[0];
-    //                 $relationRow = $relation->find([
-    //                     $foreignKey => $data[$this->primaryKey]
-    //                 ]);
-    //                 foreach ($relationData[$relation->table] as $key => $value) {
-    //                     $value[$foreignKey] = $data[$this->primaryKey];
-    //                     $relationRow->append($relation->create($value));
-    //                 }
-    //                 // find for the relation data
-    //                 $row->set($relation->table, $relationRow);
-    //             }
-    //         }
-    //         return $row;
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
-    // /**
-    //  * Method to delete a row in the table
-    //  * @return Row|Model
-    //  */
-    // public function delete(array $data)
-    // {
-    //     $delete = $this->builder->delete($this->table);
-    //     // si primaryKey is undefined return error
-    //     if (!isset($this->primaryKey)) {
-    //         return "Unknow primary key can't delete";
-    //     }
-    //     // check if their are relations columns with a foreign key
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-    //     if (count($relations) > 0) {
-    //         /**
-    //          * @var Model[] $relations
-    //          */
-    //         foreach ($relations as $relation) {
-    //             $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                 return is_array($value);
-    //             });
-    //             $foreignKey = array_keys($foreignKey)[0];
-    //             $relation->delete([$foreignKey => $data[$this->primaryKey]]);
-    //         }
-    //     }
-    //     // if primary key is not in the data check other columns 
-    //     if (!isset($data[$this->primaryKey])) {
-    //         $data = array_filter($data, function ($value) {
-    //             return !is_array($value);
-    //         });
-    //         // get the first column of the data
-    //         $column = array_keys($data)[0];
-    //         $delete->where($column, "=", $data[$column]);
-    //         // remove the column from the data
-
-    //         array_shift($data);
-    //         // check every column in the data
-    //         foreach ($data as $key => $value) {
-    //             $delete->orWhere($key, "=", $value);
-    //         }
-
-    //         $delete->limit(1);
-    //     } else {
-    //         $delete->where($this->primaryKey, "=", $data[$this->primaryKey]);
-    //     }
-    //     try {
-    //         $this->pdo->exec($delete->getSQL());
-    //         return true;
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
-    // /**
-    //  * Method to find a row in the table based on the primary key
-    //  * @return Row|Model
-    //  */
-    // public function get(int $id)
-    // {
-    //     $select = $this->builder->select(["*"]);
-    //     $select->from($this->table);
-    //     if (!isset($this->primaryKey))
-    //         return "Unknow primary key can't find";
-
-    //     // check if their are relations columns with a foreign key
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-
-    //     $select->where($this->primaryKey, "=", $id);
-
-
-    //     try {
-    //         $stmt = $this->pdo->query($select->getSQL());
-    //         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    //         // if($result === false || $result === null || $result === [] || $result === "")
-    //         if ($result === false || $result === null) {
-    //             return null;
-    //         }
-    //         $row = new Row($this, $result);
-    //         if (count($relations) > 0) {
-    //             /**
-    //              * @var Model[] $relations
-    //              */
-    //             foreach ($relations as $relation) {
-    //                 $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                     return is_array($value);
-    //                 });
-    //                 $foreignKey = array_keys($foreignKey)[0];
-    //                 $rowRel = $relation->find([
-    //                     $foreignKey => $row->get($this->primaryKey)
-    //                 ]);
-    //                 if (count($rowRel) > 0) {
-    //                     $row->set($relation->table, $rowRel);
-    //                 }
-    //             }
-    //         }
-    //         return $row;
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
-    // /**
-    //  * Method to find multiple rows in the table based on data (recursive search is possible)
-    //  * @return Row|Model
-    //  */
-    // public function find(array $data)
-    // {
-    //     $rows = new ArrayObject();
-    //     // check if their are relations search in the data
-    //     $relationsDatas = array_filter($data, function ($value) {
-    //         return is_array($value);
-    //     });
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-
-    //     // get all columns of the table 
-    //     $tableColumns = array_filter($this->schema, function ($value) {
-    //         return !is_array($value);
-    //     });
-
-    //     $tableColumns = array_keys($tableColumns);
-    //     $arrayOfColumn = ["*"];
-    //     if (count($relationsDatas) > 0) {
-    //         $arrayOfColumn = array_map(function ($value) {
-    //             return $this->table . "." . $value . " as " . $value;
-    //         }, $tableColumns);
-    //     }
-    //     $select = $this->builder->select($arrayOfColumn);
-    //     $select->from($this->table);
-    //     // select the first element of the array
-    //     $first = array_key_first($data);
-
-    //     if (count($relationsDatas) == 0) {
-    //         $select->where($first, "=", $data[$first]);
-    //         // remove the first element of the array 
-    //         array_shift($data);
-    //         foreach ($data as $key => $value) {
-    //             if (!is_array($value))
-    //                 $select->andWhere($key, "=", $value);
-    //         }
-    //     } else {
-
-    //         // inner join the relation table 
-    //         $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
-    //         // select the first element of the array
-    //         // check from where table the column is
-
-    //         $select = $this->recursiveWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey, $first);
-
-    //         $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
-    //     }
-
-    //     try {
-    //         $stmt = $this->pdo->query($select->getSQL());
-    //         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    //         // get number of rows
-    //         $count = $stmt->rowCount();
-    //         $rows = new ArrayObject();
-    //         for ($i = 0; $i < $count; $i++) {
-    //             $rows->append(new Row($this, $result[$i]));
-    //         }
-    //         $rows = array_map(function ($row) use ($relations) {
-    //             // check if their are relations columns with a foreign key
-
-    //             if (count($relations) > 0) {
-    //                 /**
-    //                  * @var Model[] $relations
-    //                  */
-    //                 foreach ($relations as $relation) {
-    //                     $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                         return is_array($value);
-    //                     });
-    //                     $foreignKey = array_filter($foreignKey, function ($value) {
-    //                         return array_key_exists("foreignKey", $value);
-    //                     });
-    //                     if ($foreignKey) {
-    //                         $foreignKey = array_keys($foreignKey)[0];
-    //                         $rowRel = $relation->find([
-    //                             $foreignKey => $row->get($this->primaryKey)
-    //                         ]);
-    //                         if ($rowRel instanceof Model) {
-    //                             die($rowRel->error);
-    //                         }
-    //                         if (count($rowRel) > 0) {
-    //                             $row->set($relation->table, $rowRel);
-    //                         }
-    //                     } else {
-    //                         // search in foreingkey on the current table 
-    //                         $foreignKey = array_filter($this->schema, function ($value) {
-    //                             return is_array($value);
-    //                         });
-
-    //                         // look if each array contain "foreignKeys" key 
-    //                         $foreignKey = array_filter($foreignKey, function ($value) {
-    //                             return array_key_exists("foreignKey", $value);
-    //                         });
-
-    //                         // get the first key of the array
-    //                         $foreignKey = array_keys($foreignKey)[0];
-    //                         $rowRel = $relation->find([
-    //                             $relation->primaryKey => $row->get($foreignKey)
-    //                         ]);
-
-    //                         if ($rowRel instanceof Model) {
-    //                             die($rowRel->error);
-    //                         }
-    //                         if (count($rowRel) > 0) {
-    //                             $row->set($relation->table, $rowRel);
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             return $row;
-    //         }, $rows->getArrayCopy());
-    //         return new ArrayObject($rows);
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
-
-    // private function recursiveWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey, $first)
-    // {
-    //     // verify if $data[$first] exist 
-    //     if (!is_array($data[$first])) {
-    //         $select->where($table . "." . $first, "=", $data[$first]);
-    //         return $select;
-    //     } else {
-    //         $first = array_key_first($data[$first]);
-    //         $table = array_key_first($data);
-    //         if (is_array($data[$table][$first])) {
-    //             $first = array_key_first($data[$table][$first]);
-    //             $table = array_key_first($data[$table]);
-    //             $data = $data[$table][$first];
-    //             $this->recursiveWhere($select, $schema, $data, $relationData, $table, $primaryKey, $first);
-    //         }
-    //     }
-    //     return $select;
-    // }
-
-    // private function recursiveAndWhere(Select $select, $schema, $data, $relationData, $table, $primaryKey)
-    // {
-    //     foreach ($relationData as $key => $value) {
-    //         if (is_string($value)) {
-    //             break;
-    //         }
-    //         foreach ($value as $k => $v) {
-    //             if (!is_array($v)) {
-    //                 $select->andWhere($key . "." . $k, "=", $v);
-    //             } else {
-    //                 $k = array_key_first($v);
-    //                 $v = $v[$k];
-    //                 $key = array_key_first($relationData);
-    //                 $relationData = $relationData[$key];
-    //                 $this->recursiveAndWhere($select, $schema, $v, $relationData, $key, $primaryKey);
-    //             }
-    //         }
-    //     }
-    //     if (is_array($data)) {
-    //         foreach ($data as $key => $value) {
-    //             if (!is_array($value))
-    //                 $select->andWhere($this->table . "." . $key, "=", $value);
-    //         }
-    //     }
-    //     return $select;
-    // }
-
-    // private function recursiveSelect(Select $select, $schema, $relationsDatas, $table, $primaryKey)
-    // {
-    //     // inner join the relation table 
-    //     foreach ($relationsDatas as $key => $value) {
-    //         if (is_string($value)) {
-    //             break;
-    //         }
-
-    //         if (is_string($schema[$key])) {
-    //             break;
-    //         }
-    //         $foreignKey = array_filter($schema[$key]["columns"], function ($value) {
-    //             return is_array($value);
-    //         });
-
-    //         $foreignKey = array_keys($foreignKey)[0];
-    //         $select->join($key, $table . "." . $primaryKey, "=", $key . "." . $foreignKey);
-    //         // check if $value is an array 
-    //         if (is_array($value)) {
-    //             // get the next table name
-    //             $nextTable = $key;
-    //             // get the next schema 
-    //             $nextSchema = $schema[$nextTable]["columns"];
-    //             // get the next relation data
-    //             $nextRelationData = $relationsDatas[$nextTable];
-    //             // get the next primary key
-    //             $nextPrimaryKey = "id";
-    //             $this->recursiveSelect($select, $nextSchema, $nextRelationData, $nextTable, $nextPrimaryKey);
-    //         } else {
-    //             return $select;
-    //         }
-    //     }
-    //     return $select;
-    // }
-    // /**
-    //  * Find one row in the table based on the data (recursive search is possible)
-    //  * @param array $data
-    //  * @return Row|Model
-    //  */
-    // public function findOne(array $data)
-    // {
-    //     $relationsDatas = array_filter($data, function ($value) {
-    //         return is_array($value);
-    //     });
-    //     $relations = array_filter($this->columns, function ($value) {
-    //         return $value instanceof Model;
-    //     });
-
-    //     // get all columns of the table 
-    //     $tableColumns = array_filter($this->schema, function ($value) {
-    //         return !is_array($value);
-    //     });
-
-    //     $tableColumns = array_keys($tableColumns);
-    //     $arrayOfColumn = ["*"];
-    //     if (count($relationsDatas) > 0) {
-    //         $arrayOfColumn = array_map(function ($value) {
-    //             return $this->table . "." . $value . " as " . $value;
-    //         }, $tableColumns);
-    //     }
-    //     $select = $this->builder->select($arrayOfColumn);
-    //     $select->from($this->table);
-    //     // select the first element of the array
-    //     $first = array_key_first($data);
-
-    //     if (count($relationsDatas) == 0) {
-    //         $select->where($first, "=", $data[$first]);
-    //         // remove the first element of the array 
-    //         array_shift($data);
-    //         foreach ($data as $key => $value) {
-    //             if (!is_array($value))
-    //                 $select->andWhere($key, "=", $value);
-    //         }
-    //     } else {
-
-    //         // inner join the relation table 
-    //         $select = $this->recursiveSelect($select, $this->schema, $relationsDatas, $this->table, $this->primaryKey);
-    //         // select the first element of the array
-    //         // check from where table the column is
-
-    //         $select = $this->recursiveWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey, $first);
-
-    //         $select = $this->recursiveAndWhere($select, $this->schema, $data, $relationsDatas, $this->table, $this->primaryKey);
-    //     }
-
-    //     try {
-    //         $stmt = $this->pdo->query($select->getSQL());
-    //         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    //         $row = new Row($this, $result);
-    //         if (count($relations) > 0) {
-    //             /**
-    //              * @var Model[] $relations
-    //              */
-    //             foreach ($relations as $relation) {
-    //                 $foreignKey = array_filter($this->schema[$relation->table]["columns"], function ($value) {
-    //                     return is_array($value);
-    //                 });
-    //                 $foreignKey = array_filter($foreignKey, function ($value) {
-    //                     return array_key_exists("foreignKey", $value);
-    //                 });
-    //                 if ($foreignKey) {
-    //                     $foreignKey = array_keys($foreignKey)[0];
-    //                     $rowRel = $relation->find([
-    //                         $foreignKey => $row->get($this->primaryKey)
-    //                     ]);
-    //                     if ($rowRel instanceof Model) {
-    //                         die($rowRel->error);
-    //                     }
-    //                     if (count($rowRel) > 0) {
-    //                         $row->set($relation->table, $rowRel);
-    //                     }
-    //                 } else {
-    //                     // search in foreingkey on the current table 
-    //                     $foreignKey = array_filter($this->schema, function ($value) {
-    //                         return is_array($value);
-    //                     });
-
-    //                     // look if each array contain "foreignKeys" key 
-    //                     $foreignKey = array_filter($foreignKey, function ($value) {
-    //                         return array_key_exists("foreignKey", $value);
-    //                     });
-
-    //                     // get the first key of the array
-    //                     $foreignKey = array_keys($foreignKey)[0];
-    //                     $rowRel = $relation->find([
-    //                         $relation->primaryKey => $row->get($foreignKey)
-    //                     ]);
-
-    //                     if ($rowRel instanceof Model) {
-    //                         die($rowRel->error);
-    //                     }
-    //                     if (count($rowRel) > 0) {
-    //                         $row->set($relation->table, $rowRel);
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         return $row;
-    //     } catch (PDOException $e) {
-    //         $this->error = $e->getMessage();
-    //         return $this;
-    //     }
-    // }
 }

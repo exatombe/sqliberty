@@ -17,7 +17,7 @@ interface ModelInterface
     public function getSchema(): Schema;
     /**
      * Make a new row in the database
-     * @return string
+     * @return Row|bool
      */
     public function create(array $data): Row|bool;
     /**
@@ -25,7 +25,7 @@ interface ModelInterface
      * @param int $id
      * @return Row
      */
-    public function get(int $id): Row|bool;
+    public function get(int $id): Row|bool|null;
 
     /**
      * Get all rows from the database based on data given 
@@ -36,6 +36,6 @@ interface ModelInterface
      * Get a single row from the database based on data given 
      * @return Row
      */
-    public function findOne(array $data): Row|bool;
+    public function findOne(array $data): Row|bool|null;
     
 }

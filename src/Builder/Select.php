@@ -5,6 +5,7 @@ namespace Sqliberty\Builder;
 class Select{
 
     private $query = "";
+    private bool $whereUsed = false;
 
     public function __construct(array $columns)
     {
@@ -47,7 +48,12 @@ class Select{
 
     public function where(string $column, string $operator, string $value): self
     {
+        if($this->whereUsed){
+            $this->query .= " AND $column $operator '$value'";
+            return $this;
+        }
         $this->query .= " WHERE $column $operator '$value'";
+        $this->whereUsed = true;
         return $this;
     }
 
