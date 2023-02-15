@@ -36,17 +36,18 @@ $db = new Database("host","database","user","password","port");
 require_once __DIR__ . '/vendor/autoload.php';
 
 use SQLiberty\Database;
+use SQLiberty\Model;
 
 $db = new Database("host","database","user","password","port");
 
-$users = $db->model("users",[
-    "id" => Type::INT,
-    "name" => Type::VARCHAR,
-    "email" => Type::VARCHAR,
-    "password" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "updated_at" => Type::DATETIME
-]);
+$users = $db->model(function(Model $table){
+    $table->int("id");
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at");
+    $table->datetime("updated_at");
+});
 ```
 
 ### Model
@@ -71,18 +72,18 @@ Regular use flow  of the model :
 require_once __DIR__ . '/vendor/autoload.php';
 
 use SQLiberty\Database;
-use SQLiberty\Type;
+use SQLiberty\Model;
 
 $db = new Database("host","database","user","password","port");
 
-$users = $db->model("users",[
-    "id" => Type::INT,
-    "name" => Type::VARCHAR,
-    "email" => Type::VARCHAR,
-    "password" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "updated_at" => Type::DATETIME
-]);
+$users = $db->model(function(Model $table){
+    $table->int("id");
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at");
+    $table->datetime("updated_at");
+});
 
 $user = $users->create([
     "name" => "John Doe",
@@ -94,7 +95,7 @@ $user = $users->create([
 
 $user = $users->update([
     "name" => "Jack Doe",
-]);
+])->save();
 ```
 
 > Model represent a table in the database, but you can specify multiple tables in the model, the model will be able to make queries between the tables.
@@ -102,30 +103,31 @@ $user = $users->update([
 ```php
 <?php
 
-$users = $db->model("users",[
-    "id" => Type::INT,
-    "name" => Type::VARCHAR,
-    "email" => Type::VARCHAR,
-    "password" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "updated_at" => Type::DATETIME,
-    "posts" => [
-        "id" => Type::INT,
-        "title" => Type::VARCHAR,
-        "content" => Type::TEXT,
-        "created_at" => Type::DATETIME,
-        "updated_at" => Type::DATETIME,
-        "user_id" => ["type" => Type::INT,"table" => "users","column" => "id"]
-        "comments" => [
-            "id" => Type::INT,
-            "content" => Type::TEXT,
-            "created_at" => Type::DATETIME,
-            "updated_at" => Type::DATETIME,
-            "post_id" => ["type" => Type::INT,"table" => "posts","column" => "id"]
-        ]
-    ]
-]);
-
+$users = $db->model(function(Model $table){
+    $table->int("id");
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at");
+    $table->datetime("updated_at");
+    $table->model("posts",function(Model $table){
+        $table->int("id");
+        $table->int("user_id");
+        $table->varchar("title");
+        $table->varchar("content");
+        $table->datetime("created_at");
+        $table->datetime("updated_at");
+        $table->belongsTo("user");
+        $table->model("comments",function(Model $table){
+            $table->int("id");
+            $table->int("post_id");
+            $table->varchar("content");
+            $table->datetime("created_at");
+            $table->datetime("updated_at");
+            $table->belongsTo("post");
+        });
+    });
+});
 $users->create([
     "name" => "John Doe",
     "email" => "test@maiL.fr",
@@ -180,14 +182,15 @@ $users->create([
 ```php
 <?php
 
-$users = $db->model([
-    "custom_primary_key" => Type::INT,
-    "name" => Type::VARCHAR,
-    "email" => Type::VARCHAR,
-    "password" => Type::VARCHAR,
-    "created_at" => Type::DATETIME,
-    "updated_at" => Type::DATETIME,
-],"custom_primary_key");
+$users = $db->model(function(Model $table){
+    $table->int("custom_id")->primaryKey()->autoIncrement();
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at");
+    $table->datetime("updated_at");
+    $table->primaryKey("email");
+});
 ```
 
 
