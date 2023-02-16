@@ -25,16 +25,16 @@ class Model extends QueryBuilder implements ModelInterface
     private Schema $schema;
     private ReferenceArray $references;
 
-    public function __construct(PDO $pdo, string $table, callable $callback)
+    public function __construct(PDO $pdo, string $table, callable|Schema $scheme)
     {
         parent::__construct();
         $this->pdo = $pdo;
         $this->references = new ReferenceArray();
-        $schema = $callback(new Schema($table));
+        $schema = is_callable($scheme) ? $scheme(new Schema($table)) : $scheme;
         if ($schema instanceof Schema) {
             $this->schema = $schema->buildSchema();
         } else {
-            throw new \Exception("The callback must return an instance of Sqliberty\Schema");
+            throw new \Exception("The scheme property must be an instance of Schema or a callable that return an instance of Schema");
         }
 
         $table = $this->createTableIfNotExist($table);

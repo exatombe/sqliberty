@@ -191,8 +191,8 @@ class Schema
         return $column;
     }
 
-    public function model(string $name,callable $callback){
-        $this->references[$name] = $callback(new Schema($name));
+    public function model(string $name,callable|Schema $scheme){
+        $this->references[$name] = is_callable($scheme) ? $scheme(new Schema($name)) : $scheme;
     }
 
     public function getTable(): string{
