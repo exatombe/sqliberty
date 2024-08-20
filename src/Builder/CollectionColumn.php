@@ -17,6 +17,17 @@ class CollectionColumn extends ArrayObject
         return $this;
     }
 
+    public function getColumn(string $name): Column
+    {
+        return $this->offsetGet($name);
+    }
+
+    public function removeColumn(string $name): self
+    {
+        $this->offsetUnset($name);
+        return $this;
+    }
+
 
     public function __toString()
     {

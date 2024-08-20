@@ -3,38 +3,100 @@
 require __DIR__ . '/vendor/autoload.php';
 
 use Sqliberty\Database;
-use Sqliberty\Row;
 use Sqliberty\Schema;
-use Sqliberty\Type;
 
-$db = new Database("localhost","cmscustom","root","");
+$db = new Database("localhost", "test_db", "root", "");
 
-
-$eleves = $db->model("eleve", function(Schema $model){
-    $model->int("id")->autoIncrement()->primaryKey();
-    $model->varchar("nom")->length(50)->nullable();
-    $model->varchar("prenom")->length(50);
-    $model->model("notes", function(Schema $ref){
-        $ref->int("id")->autoIncrement()->primaryKey();
-        $ref->int("eleve_id")->foreignKey("eleve", "id");
-        $ref->int("note");
-        $ref->varchar("matiere")->length(50);
-        $ref->model("commentaires", function(Schema $ref){
-            $ref->int("id")->autoIncrement()->primaryKey();
-            $ref->int("note_id")->foreignKey("notes", "id");
-            $ref->varchar("commentaire")->length(255);
-            return $ref;
+$users = $db->model("users", function (Schema $table) {
+    $table->int("id");
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at")->nullable();
+    $table->datetime("updated_at")->nullable();
+    $table->model("posts", function (Schema $post) {
+        $post->int("id");
+        $post->varchar("title");
+        $post->varchar("content");
+        $post->datetime("created_at")->nullable();
+        $post->datetime("updated_at")->nullable();
+        $post->belongTo("users");
+        $post->model("comments", function (Schema $comment) {
+            $comment->int("id");
+            $comment->varchar("content");
+            $comment->datetime("created_at")->nullable();
+            $comment->datetime("updated_at")->nullable();
+            $comment->belongTo("posts");
+            return $comment;
         });
-        return $ref;
+        return $post;
     });
-    return $model;
+    return $table;
 });
 
-$john = $eleves->get(5445454);
+// $users->create([
+//     "name" => "John Doe",
+//     "email" => "test@maiL.fr",
+//     "password" => "password",
+//     "created_at" => date("Y-m-d H:i:s"),
+//     "updated_at" => date("Y-m-d H:i:s"),
+//     "posts" => [
+//         [
+//             "title" => "Post special",
+//             "content" => "Content 1",
+//             "created_at" => date("Y-m-d H:i:s"),
+//             "updated_at" => date("Y-m-d H:i:s"),
+//             "comments" => [
+//                 [
+//                     "content" => "Comment 1",
+//                     "created_at" => date("Y-m-d H:i:s"),
+//                     "updated_at" => date("Y-m-d H:i:s"),
+//                 ],
+//                 [
+//                     "content" => "Comment 2",
+//                     "created_at" => date("Y-m-d H:i:s"),
+//                     "updated_at" => date("Y-m-d H:i:s"),
+//                 ]
+//             ]
+//         ],
+//         [
+//             "title" => "Post 2",
+//             "content" => "Content 2",
+//             "created_at" => date("Y-m-d H:i:s"),
+//             "updated_at" => date("Y-m-d H:i:s"),
+//             "comments" => [
+//                 [
+//                     "content" => "Comment 3",
+//                     "created_at" => date("Y-m-d H:i:s"),
+//                     "updated_at" => date("Y-m-d H:i:s"),
+//                 ],
+//                 [
+//                     "content" => "Comment magique",
+//                     "created_at" => date("Y-m-d H:i:s"),
+//                     "updated_at" => date("Y-m-d H:i:s"),
+//                 ]
+//             ]
+//         ]
+//     ]
+// ]);
 
-// print_r($john);
-// output terminal in utf8 :
+// $found = $users->findFirst([
+//     "name" => "John Doe"
+// ]);
 
+// if ($found) {
+//     echo "User found: " . $found["name"] . PHP_EOL;
+// }else{
+//     echo "User not found" . $users->error. PHP_EOL;
+// }
 
-if($john)
-print_r(json_encode($john->delete(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+/**
+ * Find all user that have posted the comment "Comment magique"
+ */
+$founds = $users->findAll();
+
+if ($founds) {
+    echo "Users found: " . count($founds) . PHP_EOL;
+} else {
+    echo "Users not found" . $users->error . PHP_EOL;
+}

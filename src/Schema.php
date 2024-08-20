@@ -79,6 +79,14 @@ class Schema
         return $column;
     }
 
+    public function belongTo(string $name, string $columnName = "id"){
+        $column = new Column($name."_id");
+        $column->type(Type::INT);
+        $column->foreignKey($name, $columnName);
+        $this->columns->addColumn($column);
+        return $column;
+    }
+
     public function year(string $name){
         $column = new Column($name);
         $column->type(Type::YEAR);
@@ -239,6 +247,7 @@ class Schema
         $this->foreignKeys = array_filter($this->columns->getArrayCopy(), function (Column $column){
             return count($column->foreignKey) > 0;
         });
+
         /**
          * @var Column[] $primaryKeys
          */
@@ -246,10 +255,10 @@ class Schema
             return $column->primaryKey;
         });
         if(count($primaryKeys) > 1){
-            // throw 
+            // throw
             throw new \Exception("Only one primary key is allowed");
         }elseif(count($primaryKeys) === 1){
-            // check if primary key is numeric 
+            // check if primary key is numeric
             if(!in_array(array_values($primaryKeys)[0]->type, [Type::INT, Type::TINYINT, Type::SMALLINT, Type::MEDIUMINT, Type::BIGINT, Type::SERIAL])){
                 throw new \Exception("Primary key must be numeric, so you need to use type int, tinyint, smallint, mediumint, bigint or serial");
             }

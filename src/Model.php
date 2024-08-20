@@ -70,16 +70,17 @@ class Model extends QueryBuilder implements ModelInterface
         $this->error = $e->getMessage();
     }
 
-    private function reorganizeData($keys, $data) {
+    private function reorganizeData($keys, $data)
+    {
         $result = array();
         foreach ($keys as $key) {
-          if (array_key_exists($key, $data)) {
-            $result[$key] = $data[$key];
-          }
+            if (array_key_exists($key, $data)) {
+                $result[$key] = $data[$key];
+            }
         }
         return $result;
-      }
-      
+    }
+
 
     public function create(array $data, $iteration = 0): Row|bool
     {
@@ -119,15 +120,15 @@ class Model extends QueryBuilder implements ModelInterface
             $refColumns = $ref->getColumns()->getArrayCopy();
             $refTable = $ref->getTable();
             $refData = [];
-            if(isset($data[$refTable]) && is_array($data[$refTable])){
+            if (isset($data[$refTable]) && is_array($data[$refTable])) {
                 $refData = $data[$refTable];
                 $refsData[$refTable] = $data[$refTable];
             }
         }
-        $data = array_filter($data, function ($value){
+        $data = array_filter($data, function ($value) {
             return !is_array($value);
         });
-        // reorganize data to match the columns 
+        // reorganize data to match the columns
         $data = $this->reorganizeData($columnsToSelect, $data);
         $insert->addValues($data);
         try {
@@ -141,7 +142,7 @@ class Model extends QueryBuilder implements ModelInterface
             foreach ($refsData as $refTable => $refData) {
 
                 $ref = $this->references->get($refTable);
-                // get foreign key column if it references the current table 
+                // get foreign key column if it references the current table
                 $foreignKeys = $ref->getSchema()->getForeignKeys();
                 /**
                  * @var Column[] $foreignKey
@@ -149,9 +150,9 @@ class Model extends QueryBuilder implements ModelInterface
                 $foreignKey = array_filter($foreignKeys, function (Column $value) use ($refTable) {
                     return $value->foreignKey['table'] == $this->schema->getTable();
                 });
-                if(count($foreignKey) > 0){
+                if (count($foreignKey) > 0) {
                     $foreignKey = array_values($foreignKey)[0];
-                }else{
+                } else {
                     continue;
                 }
                 if ($this->isReference($refTable)) {
@@ -170,7 +171,7 @@ class Model extends QueryBuilder implements ModelInterface
         }
     }
 
-    public function find(array $data): RowsArray|bool
+    public function findAll(array $data = [], $limit = 100): RowsArray|bool
     {
         $columnsName = array_filter($this->schema->getColumns()->getArrayCopy(), function (Column|Model $value) {
             return !$value instanceof Model;
@@ -180,29 +181,33 @@ class Model extends QueryBuilder implements ModelInterface
         }, $columnsName);
         $select = $this->select($columnsName);
         $select->from($this->schema->getTable());
+
+        if (count($data) > 0) {
         $refs = $this->references->getArrayCopy();
         // make a recursive join if there is references in the table and if the reference is passed in the data array
         $refs = $this->schema->getReferences();
-        if(count($refs) > 0){
-            foreach ($refs as $ref) {
-                $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
+            if (count($refs) > 0) {
+                foreach ($refs as $ref) {
+                    $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
+                }
+                foreach ($refs as $ref) {
+                    $select = $this->joinWhere($ref, $data, $select);
+                }
+            } else {
+                $select = $this->joinWhere($this->schema, $data, $select);
             }
-            foreach ($refs as $ref) {
-                $select = $this->joinWhere($ref, $data, $select, $this->schema->getTable());
-            }
-        }else{
-            $select = $this->joinWhere($this->schema, $data, $select, $this->schema->getTable());
         }
+        $select->limit($limit);
         try {
             $stmt = $this->pdo->prepare($select->getSQL());
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $rowsArray = new RowsArray($this);
             foreach ($rows as $row) {
-                // for each row, add the reference rows 
+                // for each row, add the reference rows
                 $row = new Row($this, $row);
                 foreach ($this->references as $ref) {
-                    // get foreign key for the current table 
+                    // get foreign key for the current table
                     $foreignKeys = $ref->getSchema()->getForeignKeys();
                     /**
                      * @var Column[] $foreignKey
@@ -210,9 +215,9 @@ class Model extends QueryBuilder implements ModelInterface
                     $foreignKey = array_filter($foreignKeys, function (Column $value) use ($ref) {
                         return $value->foreignKey['table'] == $this->getSchema()->getTable();
                     });
-                    if(count($foreignKey) == 0) {
+                    if (count($foreignKey) == 0) {
                         continue;
-                    }else {
+                    } else {
                         $foreignKey = array_values($foreignKey)[0];
                     }
                     $rowToFind = $ref->find([
@@ -229,6 +234,21 @@ class Model extends QueryBuilder implements ModelInterface
         }
     }
 
+    public function findFirst(array $data): Row|bool
+    {
+        try {
+            $rows = $this->findAll($data, 1);
+            if ($rows) {
+                return $rows->first();
+            } else {
+                return false;
+            }
+        } catch (PDOException $e) {
+            $this->errorHandler($e);
+            return false;
+        }
+    }
+
     private function joinForeignKeys(Schema $ref, array $data, Select $select, $currentTable): Select
     {
         $foreignKeys = $ref->getForeignKeys();
@@ -238,19 +258,22 @@ class Model extends QueryBuilder implements ModelInterface
         $foreignKey = array_filter($foreignKeys, function (Column $value) use ($currentTable) {
             return $value->foreignKey['table'] == $currentTable;
         });
-        if(count($foreignKey) == 0) {
+        if (count($foreignKey) == 0) {
             return $select;
-        }else {
+        } else {
             $foreignKey = array_values($foreignKey)[0];
         }
         $refColumn = $ref->getTable() . "." . $foreignKey->name;
-        $primaryKey = $this->schema->getTable() . "." . $this->schema->getPrimaryKey();
-        // check if $data has the key of the table 
+        $primaryKey = $currentTable . "." . $foreignKey->foreignKey['column'];
+        // check if $data has the key of the table
         if (isset($data[$ref->getTable()])) {
             $refData = $data[$ref->getTable()];
             $select->join($ref->getTable(), $refColumn, "=", $primaryKey);
             // recursively join foreign keys of referenced tables
             foreach ($refData as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
                 foreach ($row as $key => $value) {
                     $subRef = $ref->getReference($key);
                     if ($subRef) {
@@ -258,6 +281,8 @@ class Model extends QueryBuilder implements ModelInterface
                     }
                 }
             }
+        } else {
+            $select->join($ref->getTable(), $refColumn, "=", $primaryKey);
         }
         return $select;
     }
@@ -268,7 +293,7 @@ class Model extends QueryBuilder implements ModelInterface
             if (!is_array($value)) {
                 return ["key" => $key, "value" => $value, "table" => $table->getTable()];
             } else {
-                // get the schema of the referenced table 
+                // get the schema of the referenced table
                 $ref = $table->getReference($key);
                 if ($ref) {
                     return $this->getFirstKey($value, $ref);
@@ -279,23 +304,23 @@ class Model extends QueryBuilder implements ModelInterface
         }
     }
 
-    private function joinWhere(Schema $ref, array $data, Select $select, $currentTable)
+    private function joinWhere(Schema $ref, array $data, Select $select)
     {
 
-        
+
         $firstKey = $this->getFirstKey($data, $this->schema);
-        $select->where($firstKey["table"] . "." . $firstKey["key"], "=", $firstKey["value"]);
+        $select->where($firstKey["table"] . "." . $firstKey["key"], "LIKE", "%" . $firstKey["value"] . "%");
         foreach ($data as $key => $value) {
-            if($key != $firstKey["key"]) {
-              if (is_array($value)) {
-                $subRef = $ref->getReference($key);
-                if ($subRef) {
-                    $this->joinWhere($subRef, $data, $select, $ref->getTable());
+            if ($key != $firstKey["key"]) {
+                if (is_array($value)) {
+                    $subRef = $ref->getReference($key);
+                    if ($subRef) {
+                        $this->joinWhere($subRef, $data, $select);
+                    }
+                } else {
+                    $select->andWhere($ref->getTable() . "." . $key, "LIKE", "%" . $value . "%");
                 }
-            } else {
-                $select->andWhere($ref->getTable() . "." . $key, "=", $value);
             }
-        }    
         }
 
         return $select;
@@ -318,7 +343,7 @@ class Model extends QueryBuilder implements ModelInterface
             $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
         }
         foreach ($refs as $ref) {
-            $select = $this->joinWhere($ref, $data, $select, $this->schema->getTable());
+            $select = $this->joinWhere($ref, $data, $select);
         }
         $select->limit(1);
         try {
@@ -327,10 +352,10 @@ class Model extends QueryBuilder implements ModelInterface
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $rowsArray = new RowsArray($this);
             foreach ($rows as $row) {
-                // for each row, add the reference rows 
+                // for each row, add the reference rows
                 $row = new Row($this, $row);
                 foreach ($this->references as $ref) {
-                    // get foreign key for the current table 
+                    // get foreign key for the current table
                     $foreignKeys = $ref->getSchema()->getForeignKeys();
                     /**
                      * @var Column[] $foreignKey
@@ -338,9 +363,9 @@ class Model extends QueryBuilder implements ModelInterface
                     $foreignKey = array_filter($foreignKeys, function (Column $value) use ($ref) {
                         return $value->foreignKey['table'] == $this->getSchema()->getTable();
                     });
-                    if(count($foreignKey) == 0) {
+                    if (count($foreignKey) == 0) {
                         continue;
-                    }else {
+                    } else {
                         $foreignKey = array_values($foreignKey)[0];
                     }
                     $rowToFind = $ref->find([
