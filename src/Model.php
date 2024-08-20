@@ -220,7 +220,7 @@ class Model extends QueryBuilder implements ModelInterface
                     } else {
                         $foreignKey = array_values($foreignKey)[0];
                     }
-                    $rowToFind = $ref->find([
+                    $rowToFind = $ref->findAll([
                         $foreignKey->name => $row->get($this->schema->getPrimaryKey())
                     ]);
                     $row->set($ref->getSchema()->getTable(), $rowToFind);
@@ -326,66 +326,9 @@ class Model extends QueryBuilder implements ModelInterface
         return $select;
     }
 
-    public function findOne(array $data): Row|bool|null
-    {
-        $columnsName = array_filter($this->schema->getColumns()->getArrayCopy(), function (Column|Model $value) {
-            return !$value instanceof Model;
-        });
-        $columnsName = array_map(function (Column $value) {
-            return $this->schema->getTable() . '.' . $value->name . ' as ' . $value->name;
-        }, $columnsName);
-        $select = $this->select($columnsName);
-        $select->from($this->schema->getTable());
-        $refs = $this->references->getArrayCopy();
-        // make a recursive join if there is references in the table and if the reference is passed in the data array
-        $refs = $this->schema->getReferences();
-        foreach ($refs as $ref) {
-            $select = $this->joinForeignKeys($ref, $data, $select, $this->schema->getTable());
-        }
-        foreach ($refs as $ref) {
-            $select = $this->joinWhere($ref, $data, $select);
-        }
-        $select->limit(1);
-        try {
-            $stmt = $this->pdo->prepare($select->getSQL());
-            $stmt->execute();
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $rowsArray = new RowsArray($this);
-            foreach ($rows as $row) {
-                // for each row, add the reference rows
-                $row = new Row($this, $row);
-                foreach ($this->references as $ref) {
-                    // get foreign key for the current table
-                    $foreignKeys = $ref->getSchema()->getForeignKeys();
-                    /**
-                     * @var Column[] $foreignKey
-                     */
-                    $foreignKey = array_filter($foreignKeys, function (Column $value) use ($ref) {
-                        return $value->foreignKey['table'] == $this->getSchema()->getTable();
-                    });
-                    if (count($foreignKey) == 0) {
-                        continue;
-                    } else {
-                        $foreignKey = array_values($foreignKey)[0];
-                    }
-                    $rowToFind = $ref->find([
-                        $foreignKey->name => $row->get($this->schema->getPrimaryKey())
-                    ]);
-                    $row->set($ref->getSchema()->getTable(), $rowToFind);
-                }
-                $rowsArray->set($row->get($this->schema->getPrimaryKey()), $row);
-            }
-            // return one row or null if there is no row
-            return $rowsArray->first() ?? null;
-        } catch (PDOException $e) {
-            $this->errorHandler($e);
-            return false;
-        }
-    }
-
     public function get(int $id): Row|null|bool
     {
-        return $this->findOne([$this->schema->getPrimaryKey() => $id]);
+        return $this->findFirst([$this->schema->getPrimaryKey() => $id]);
     }
 
     public function getReferences(): ReferenceArray

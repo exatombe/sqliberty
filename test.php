@@ -34,69 +34,64 @@ $users = $db->model("users", function (Schema $table) {
     return $table;
 });
 
-// $users->create([
-//     "name" => "John Doe",
-//     "email" => "test@maiL.fr",
-//     "password" => "password",
-//     "created_at" => date("Y-m-d H:i:s"),
-//     "updated_at" => date("Y-m-d H:i:s"),
-//     "posts" => [
-//         [
-//             "title" => "Post special",
-//             "content" => "Content 1",
-//             "created_at" => date("Y-m-d H:i:s"),
-//             "updated_at" => date("Y-m-d H:i:s"),
-//             "comments" => [
-//                 [
-//                     "content" => "Comment 1",
-//                     "created_at" => date("Y-m-d H:i:s"),
-//                     "updated_at" => date("Y-m-d H:i:s"),
-//                 ],
-//                 [
-//                     "content" => "Comment 2",
-//                     "created_at" => date("Y-m-d H:i:s"),
-//                     "updated_at" => date("Y-m-d H:i:s"),
-//                 ]
-//             ]
-//         ],
-//         [
-//             "title" => "Post 2",
-//             "content" => "Content 2",
-//             "created_at" => date("Y-m-d H:i:s"),
-//             "updated_at" => date("Y-m-d H:i:s"),
-//             "comments" => [
-//                 [
-//                     "content" => "Comment 3",
-//                     "created_at" => date("Y-m-d H:i:s"),
-//                     "updated_at" => date("Y-m-d H:i:s"),
-//                 ],
-//                 [
-//                     "content" => "Comment magique",
-//                     "created_at" => date("Y-m-d H:i:s"),
-//                     "updated_at" => date("Y-m-d H:i:s"),
-//                 ]
-//             ]
-//         ]
-//     ]
-// ]);
+$users->create([
+    "name" => "John Doe",
+    "email" => "test@maiL.fr",
+    "password" => "password",
+    "created_at" => date("Y-m-d H:i:s"),
+    "updated_at" => date("Y-m-d H:i:s"),
+    "posts" => [
+        [
+            "title" => "Post special",
+            "content" => "Content 1",
+            "created_at" => date("Y-m-d H:i:s"),
+            "updated_at" => date("Y-m-d H:i:s"),
+            "comments" => [
+                [
+                    "content" => "Comment 1",
+                    "created_at" => date("Y-m-d H:i:s"),
+                    "updated_at" => date("Y-m-d H:i:s"),
+                ],
+                [
+                    "content" => "Comment 2",
+                    "created_at" => date("Y-m-d H:i:s"),
+                    "updated_at" => date("Y-m-d H:i:s"),
+                ]
+            ]
+        ],
+        [
+            "title" => "Post 2",
+            "content" => "Content 2",
+            "created_at" => date("Y-m-d H:i:s"),
+            "updated_at" => date("Y-m-d H:i:s"),
+            "comments" => [
+                [
+                    "content" => "Comment 3",
+                    "created_at" => date("Y-m-d H:i:s"),
+                    "updated_at" => date("Y-m-d H:i:s"),
+                ],
+                [
+                    "content" => "Comment magique",
+                    "created_at" => date("Y-m-d H:i:s"),
+                    "updated_at" => date("Y-m-d H:i:s"),
+                ]
+            ]
+        ]
+    ]
+]);
 
-// $found = $users->findFirst([
-//     "name" => "John Doe"
-// ]);
-
-// if ($found) {
-//     echo "User found: " . $found["name"] . PHP_EOL;
-// }else{
-//     echo "User not found" . $users->error. PHP_EOL;
-// }
-
-/**
- * Find all user that have posted the comment "Comment magique"
- */
 $founds = $users->findAll();
 
 if ($founds) {
     echo "Users found: " . count($founds) . PHP_EOL;
 } else {
     echo "Users not found" . $users->error . PHP_EOL;
+}
+
+$found = $users->get(1);
+
+if ($found) {
+    echo "User found: " . $found["name"] . PHP_EOL;
+} else {
+    echo "User not found" . $users->error . PHP_EOL;
 }

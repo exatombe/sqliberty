@@ -1,4 +1,4 @@
-# SQLiberty - SQLiberty is a library for make easy the use of SQL in PHP 
+# SQLiberty - SQLiberty is a library for make easy the use of SQL in PHP
 
 ## Installation
 
@@ -22,7 +22,7 @@ $db = new Database("host","database","user","password","port");
 
 ## Documentation
 
-### Database 
+### Database
 
 | Method | Description |
 | ------ | ----------- |
@@ -59,8 +59,8 @@ $users = $db->model(function(Schema $table){
 | create | Create a new row in the table |
 | update | Update a row in the table |
 | delete | Delete a row in the table |
-| find | Find rows in the table |
-| findOne | Find one row in the table |
+| findAll | Find all rows in the table that match the condition |
+| findFirst | Find the first row in the table that match the condition |
 | get | Get a row in the table based on the primary key |
 
 #### Example
@@ -103,7 +103,7 @@ $user = $users->update([
 ```php
 <?php
 
-$users = $db->model(function(Schema $table){
+$users = $db->model("user",function(Schema $table){
     $table->int("id");
     $table->varchar("name");
     $table->varchar("email");
@@ -112,19 +112,17 @@ $users = $db->model(function(Schema $table){
     $table->datetime("updated_at");
     $table->model("posts",function(Schema $table){
         $table->int("id");
-        $table->int("user_id");
         $table->varchar("title");
         $table->varchar("content");
         $table->datetime("created_at");
         $table->datetime("updated_at");
-        $table->belongsTo("user");
+        $table->belongTo("user");
         $table->model("comments",function(Schema $table){
             $table->int("id");
-            $table->int("post_id");
             $table->varchar("content");
             $table->datetime("created_at");
             $table->datetime("updated_at");
-            $table->belongsTo("post");
+            $table->belongTo("post");
         });
     });
 });
@@ -193,5 +191,47 @@ $users = $db->model(function(Model $table){
 });
 ```
 
+> findFirst/ findAll work in the same way and are even recursive Search ! for example :
 
+```php
+<?php
+/**
+ * Defining model
+ */
+$users = $db->model("user",function(Schema $table){
+    $table->int("id");
+    $table->varchar("name");
+    $table->varchar("email");
+    $table->varchar("password");
+    $table->datetime("created_at");
+    $table->datetime("updated_at");
+    $table->model("posts",function(Schema $table){
+        $table->int("id");
+        $table->varchar("title");
+        $table->varchar("content");
+        $table->datetime("created_at");
+        $table->datetime("updated_at");
+        $table->belongTo("user");
+        $table->model("comments",function(Schema $table){
+            $table->int("id");
+            $table->varchar("content");
+            $table->datetime("created_at");
+            $table->datetime("updated_at");
+            $table->belongTo("post");
+        });
+    });
+});
+
+$found = $db->findAll([
+    "posts" => [
+        [
+            "comments" => [
+                "content" => "Comment"
+            ]
+        ]
+    ]
+])
+
+// The result will be All comment that "Contain" the word Comment.
+```
 

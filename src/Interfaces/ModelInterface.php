@@ -32,10 +32,11 @@ interface ModelInterface
      * @return RowsArray
      */
     public function findAll(array $data): RowsArray|bool;
+
     /**
      * Get a single row from the database based on data given
      * @return Row
      */
-    public function findOne(array $data): Row|bool|null;
+    public function findFirst(array $data): Row|bool|null;
 
 }
